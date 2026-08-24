@@ -45,3 +45,8 @@ if __name__ == "__main__":
         print(f"⚠️ Erro ao enviar WhatsApp: Status {response.status_code}")
     except Exception as e:
       print(f"❌ Erro ao conectar com o serviço do WhatsApp: {e}")
+
+      enviar_alerta_whatsapp(
+        "🚢 *TESTE DO MONITOR MARÍTIMO*\nSua automação no GitHub Actions está"
+        " funcionando!"
+      )

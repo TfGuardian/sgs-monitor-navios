@@ -146,3 +146,6 @@ if __name__ == "__main__":
       print("⚠️ Nenhum navio cadastrado no banco para monitorar.")
   except Exception as e:
     print(f"❌ Erro ao consultar banco: {e}")
+
+    mensagem = f"🚢 *Navio Detectado:* {navio['nome']}\n📍 *Local:* {navio['local']}\n📅 *ETA:* {navio['eta']}"
+    enviar_alerta_whatsapp(mensagem)

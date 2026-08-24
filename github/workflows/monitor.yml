@@ -1,0 +1,24 @@
+name: Executar Monitor APS
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # Executa a cada 15 minutos
+  workflow_dispatch: # Permite rodar manualmente pelo GitHub
+
+jobs:
+  run-monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v3
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Executar Script
+        run: python monitor_aps.py

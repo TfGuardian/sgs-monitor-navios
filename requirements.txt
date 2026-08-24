@@ -1,0 +1,7 @@
+Plaintext
+requests
+pandas
+lxml
+supabase
+urllib3
+html5lib

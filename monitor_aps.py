@@ -130,5 +130,19 @@ def processar_e_salvar_navio(nome_navio):
 
 
 if __name__ == "__main__":
-  navio = input("Digite o nome do navio (ex: CAP SAN TAINARO): ")
-  processar_e_salvar_navio(navio)
+  # Busca todos os navios cadastrados na tabela do Supabase
+  try:
+    res = supabase.table("navios_monitorados").select("nome").execute()
+    navios_cadastrados = res.data
+
+    if navios_cadastrados:
+      print(
+          f"🔄 Iniciando atualização automática de {len(navios_cadastrados)}"
+          " navio(s)..."
+      )
+      for item in navios_cadastrados:
+        processar_e_salvar_navio(item["nome"])
+    else:
+      print("⚠️ Nenhum navio cadastrado no banco para monitorar.")
+  except Exception as e:
+    print(f"❌ Erro ao consultar banco: {e}")

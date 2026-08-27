@@ -1,9 +1,13 @@
 import io
+import os
 import re
+import tempfile
 import unicodedata
 from datetime import datetime
+from pathlib import Path
 from typing import Any, cast
 
+import certifi
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
@@ -15,6 +19,31 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; SGS-Monitor-Navios/1.0)"}
 TIMEOUT = (5, 30)
 supabase = criar_supabase()
 Registro = dict[str, Any]
+_BUNDLE_APS: str | bool | None = None
+
+
+def _verificacao_https_aps() -> str | bool:
+  """Completa a cadeia Sectigo omitida pelo servidor da APS no Linux."""
+  global _BUNDLE_APS
+  if _BUNDLE_APS is not None:
+    return _BUNDLE_APS
+  if os.name == "nt":
+    _BUNDLE_APS = True
+    return _BUNDLE_APS
+
+  intermediario = (
+      Path(__file__).resolve().parent
+      / "certs"
+      / "SectigoPublicServerAuthenticationCAOVR36.pem"
+  )
+  bundle = Path(tempfile.gettempdir()) / "sgs-monitor-aps-ca-bundle.pem"
+  bundle.write_bytes(
+      Path(certifi.where()).read_bytes()
+      + b"\n"
+      + intermediario.read_bytes()
+  )
+  _BUNDLE_APS = str(bundle)
+  return _BUNDLE_APS
 
 
 def _sessao_http() -> requests.Session:
@@ -48,7 +77,12 @@ def _valor(row, coluna):
 
 
 def coletar_aps() -> list[Registro]:
-  response = _sessao_http().get(APS_URL, headers=HEADERS, timeout=TIMEOUT)
+  response = _sessao_http().get(
+      APS_URL,
+      headers=HEADERS,
+      timeout=TIMEOUT,
+      verify=_verificacao_https_aps(),
+  )
   response.raise_for_status()
   tabelas = pd.read_html(io.StringIO(response.text))
   registros: list[Registro] = []

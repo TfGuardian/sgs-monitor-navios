@@ -8,15 +8,18 @@ on:
 jobs:
   executar-monitor:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - name: Baixar codigo do repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar ambiente Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Instalar dependencias
         run: |

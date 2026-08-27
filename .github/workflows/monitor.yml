@@ -33,6 +33,13 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          WHATSAPP_PROVIDER: ${{ secrets.WHATSAPP_PROVIDER }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_PHONE_NUMBER_ID: ${{ secrets.META_PHONE_NUMBER_ID }}
+          META_RECIPIENT_PHONE: ${{ secrets.META_RECIPIENT_PHONE }}
+          META_TEMPLATE_NAME: ${{ secrets.META_TEMPLATE_NAME }}
+          META_TEMPLATE_LANGUAGE: ${{ secrets.META_TEMPLATE_LANGUAGE }}
+          META_GRAPH_API_VERSION: ${{ secrets.META_GRAPH_API_VERSION }}
           ZAPI_INSTANCE_ID: ${{ secrets.ZAPI_INSTANCE_ID }}
           ZAPI_INSTANCE_TOKEN: ${{ secrets.ZAPI_INSTANCE_TOKEN }}
           ZAPI_CLIENT_TOKEN: ${{ secrets.ZAPI_CLIENT_TOKEN }}

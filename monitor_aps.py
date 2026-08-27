@@ -1,151 +1,163 @@
 import io
+import re
+import unicodedata
+from datetime import datetime
+from typing import Any, cast
+
 import pandas as pd
 import requests
-import urllib3
-from supabase import Client, create_client
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+from config import APS_URL, criar_supabase
 
-# --- CONFIGURAÇÕES DO SUPABASE ---
-SUPABASE_URL = "https://tshgnkpzzlorwiyrotnr.supabase.co"
-SUPABASE_KEY = "sb_publishable_gm8CfcTl9cr8knkq8ZKOqQ_7DzecS-R"  # Cole sua chave publishable ou secret aqui
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; SGS-Monitor-Navios/1.0)"}
+TIMEOUT = (5, 30)
+supabase = criar_supabase()
+Registro = dict[str, Any]
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-URL_APS = "https://www.portodesantos.com.br/informacoes-operacionais/operacoes-portuarias/navegacao-e-movimento-de-navios/atracacoes-programadas/"
+def _sessao_http() -> requests.Session:
+  sessao = requests.Session()
+  retry = Retry(total=3, backoff_factor=1,
+                status_forcelist=(429, 500, 502, 503, 504),
+                allowed_methods=("GET",))
+  sessao.mount("https://", HTTPAdapter(max_retries=retry))
+  return sessao
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
-        " like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    )
-}
+
+def normalizar_texto(valor) -> str:
+  texto = unicodedata.normalize("NFKD", str(valor))
+  texto = "".join(c for c in texto if not unicodedata.combining(c))
+  return re.sub(r"\s+", " ", texto).strip().upper()
 
 
 def buscar_coluna(df, palavras_chave):
   for col in df.columns:
-    col_str = str(col).lower()
-    if any(p.lower() in col_str for p in palavras_chave):
+    col_normalizada = normalizar_texto(col)
+    if any(normalizar_texto(p) in col_normalizada for p in palavras_chave):
       return col
   return None
 
 
-def processar_e_salvar_navio(nome_navio):
-  print(f"🔎 Conectando na APS e analisando tabela por tabela...\n")
-  try:
-    response = requests.get(URL_APS, headers=HEADERS, verify=False)
-    if response.status_code != 200:
-      print(f"⚠️ Erro ao acessar APS: Status {response.status_code}")
-      return
+def _valor(row, coluna):
+  if coluna is None or pd.isna(row.get(coluna)):
+    return None
+  valor = str(row.get(coluna)).strip()
+  return valor or None
 
-    tabelas = pd.read_html(io.StringIO(response.text))
-    if not tabelas:
-      print("⚠️ Nenhuma tabela encontrada na página.")
-      return
 
-    navio_encontrado = False
-    termo_busca = nome_navio.strip().upper()
-
-    # Processa cada bloco/tabela da página de forma isolada
-    for idx, t in enumerate(tabelas, start=1):
-      # Normaliza cabeçalhos da tabela atual
-      if isinstance(t.columns, pd.MultiIndex):
-        t.columns = [
-            " ".join([str(c) for c in col if "Unnamed" not in str(c)]).strip()
-            for col in t.columns
-        ]
-      else:
-        t.columns = [str(c).strip() for c in t.columns]
-
-      col_navio = buscar_coluna(t, ["navio", "ship", "burque"])
-
-      # Se a tabela não tiver coluna de navio, pula para a próxima
-      if not col_navio:
+def coletar_aps() -> list[Registro]:
+  response = _sessao_http().get(APS_URL, headers=HEADERS, timeout=TIMEOUT)
+  response.raise_for_status()
+  tabelas = pd.read_html(io.StringIO(response.text))
+  registros: list[Registro] = []
+  for tabela in tabelas:
+    if isinstance(tabela.columns, pd.MultiIndex):
+      tabela.columns = [
+          " ".join(str(c) for c in col if "Unnamed" not in str(c)).strip()
+          for col in tabela.columns
+      ]
+    else:
+      tabela.columns = [str(c).strip() for c in tabela.columns]
+    col_navio = buscar_coluna(tabela, ["navio", "ship", "vessel", "buque"])
+    if col_navio is None:
+      continue
+    colunas = {
+        "imo": buscar_coluna(tabela, ["imo"]),
+        "eta": buscar_coluna(tabela, ["eta"]),
+        "etb": buscar_coluna(tabela, ["atracacao"]),
+        "local": buscar_coluna(tabela, ["local", "berco", "terminal"]),
+        "carga": buscar_coluna(tabela, ["carga", "cargo"]),
+        "evento": buscar_coluna(tabela, ["evento", "event", "status"]),
+        "viagem": buscar_coluna(tabela, ["viagem", "voyage"]),
+        "duv": buscar_coluna(tabela, ["duv"]),
+    }
+    for _, row in tabela.iterrows():
+      nome = _valor(row, col_navio)
+      if not nome:
         continue
+      dados: Registro = {"nome": nome, "fonte": "APS"}
+      dados.update({campo: _valor(row, col) for campo, col in colunas.items()})
+      registros.append(dados)
+  if not registros:
+    raise RuntimeError("A APS nao retornou nenhuma tabela reconhecida de navios")
+  return registros
 
-      col_imo = buscar_coluna(t, ["imo"])
-      col_eta = buscar_coluna(t, ["eta"])
-      col_local = buscar_coluna(t, ["local", "place", "lugar"])
-      col_carga = buscar_coluna(t, ["carga", "cargo"])
-      col_evento = buscar_coluna(t, ["evento", "event"])
-      col_duv = buscar_coluna(t, ["duv"])
-      col_viagem = buscar_coluna(t, ["viagem", "voyage", "viaje"])
 
-      # Limpa a coluna de navios desta tabela
-      t["navio_limpo"] = (
-          t[col_navio]
-          .astype(str)
-          .str.replace(r"\s+", " ", regex=True)
-          .str.strip()
-          .str.upper()
-      )
+def _encontrar(registros: list[Registro], nome: str) -> Registro | None:
+  procurado = normalizar_texto(nome)
+  encontrados = [
+      r for r in registros if normalizar_texto(r["nome"]) == procurado
+  ]
+  return max(encontrados, key=lambda r: _data_operacao(
+      r.get("etb") or r.get("eta"))) \
+      if encontrados else None
 
-      resultado = t[t["navio_limpo"].str.contains(termo_busca, na=False)]
 
-      if not resultado.empty:
-        navio_encontrado = True
-        for _, row in resultado.iterrows():
-          dados = {
-              "nome": str(row.get(col_navio, "")).strip(),
-              "imo": str(row.get(col_imo, "")).strip() if col_imo else "N/A",
-              "eta": str(row.get(col_eta, "")).strip() if col_eta else "N/A",
-              "local": (
-                  str(row.get(col_local, "")).strip() if col_local else "N/A"
-              ),
-              "carga": (
-                  str(row.get(col_carga, "")).strip() if col_carga else "N/A"
-              ),
-              "evento": (
-                  str(row.get(col_evento, "")).strip() if col_evento else "N/A"
-              ),
-              "viagem": (
-                  str(row.get(col_viagem, "")).strip() if col_viagem else "N/A"
-              ),
-              "duv": str(row.get(col_duv, "")).strip() if col_duv else "N/A",
-              "fonte": "APS",
-          }
+def _data_operacao(valor) -> datetime:
+  if not valor:
+    return datetime.min
+  texto = str(valor).strip()
+  formatos = (
+      "%d/%m/%Y %H:%M:%S",
+      "%d/%m/%y %H:%M:%S",
+      "%Y-%m-%d %H:%M:%S",
+  )
+  for formato in formatos:
+    try:
+      return datetime.strptime(texto, formato)
+    except ValueError:
+      continue
+  return datetime.min
 
-          print(
-              f"🎯 NAVIO LOCALIZADO NA TABELA {idx}: {dados['nome']} (IMO:"
-              f" {dados['imo']})"
-          )
 
-          # Grava/Atualiza no Supabase
-          res = (
-              supabase.table("navios_monitorados")
-              .upsert(dados, on_conflict="imo")
-              .execute()
-          )
-          print("✅ DADOS GRAVADOS COM SUCESSO NO SUPABASE!")
-          print(f"📌 Retorno: {res.data}\n")
+def _mudou(anterior: Registro, novo: Registro) -> bool:
+  return any((anterior.get(c) or None) != (novo.get(c) or None)
+             for c in ("eta", "etb", "local", "evento", "fonte"))
 
-    if not navio_encontrado:
-      print(
-          f"❌ O termo '{termo_busca}' não foi encontrado em nenhuma das"
-          f" {len(tabelas)} tabelas analisadas."
-      )
 
-  except Exception as e:
-    print(f"❌ Erro de execução: {e}")
+def processar_navios(dry_run: bool = False) -> list[Registro]:
+  registros_aps = coletar_aps()
+  resposta = supabase.table("navios_monitorados").select("*").execute()
+  monitorados = cast(list[Registro], resposta.data or [])
+  alterados: list[Registro] = []
+  for anterior in monitorados:
+    # A Praticagem tem maior precedencia operacional e nao deve ser apagada
+    # pela coleta APS seguinte.
+    if anterior.get("fonte") == "SANTOS_PILOTS":
+      continue
+    encontrado = _encontrar(registros_aps, anterior.get("nome", ""))
+    if not encontrado:
+      continue
+    data_nova = _data_operacao(encontrado.get("etb") or encontrado.get("eta"))
+    data_anterior = _data_operacao(anterior.get("etb") or anterior.get("eta"))
+    if data_nova < data_anterior:
+      print(f"APS ignorada para {anterior['nome']}: operacao do painel e antiga")
+      continue
+    dados = {k: v for k, v in encontrado.items() if v is not None}
+    if not _mudou(anterior, dados):
+      continue
+    if dry_run:
+      alterados.append({**anterior, **dados})
+      print(f"[SIMULACAO] APS alteraria {dados['nome']}")
+      continue
+    imo = anterior.get("imo")
+    consulta = supabase.table("navios_monitorados").update(dados)
+    consulta = (consulta.eq("imo", imo) if imo and imo != "N/A"
+                else consulta.eq("nome", anterior["nome"]))
+    resultado = consulta.execute()
+    atualizados = cast(list[Registro], resultado.data or [])
+    alterados.extend(atualizados or [{**anterior, **dados}])
+    print(f"APS atualizada para {dados['nome']}")
+  return alterados
+
+
+def processar_e_salvar_navio(nome_navio):
+  """Compatibilidade com integracoes antigas."""
+  encontrado = _encontrar(coletar_aps(), nome_navio)
+  return [encontrado] if encontrado else []
 
 
 if __name__ == "__main__":
-  # Busca todos os navios cadastrados na tabela do Supabase
-  try:
-    res = supabase.table("navios_monitorados").select("nome").execute()
-    navios_cadastrados = res.data
-
-    if navios_cadastrados:
-      print(
-          f"🔄 Iniciando atualização automática de {len(navios_cadastrados)}"
-          " navio(s)..."
-      )
-      for item in navios_cadastrados:
-        processar_e_salvar_navio(item["nome"])
-    else:
-      print("⚠️ Nenhum navio cadastrado no banco para monitorar.")
-  except Exception as e:
-    print(f"❌ Erro ao consultar banco: {e}")
-
-    mensagem = f"🚢 *Navio Detectado:* {navio['nome']}\n📍 *Local:* {navio['local']}\n📅 *ETA:* {navio['eta']}"
-    enviar_alerta_whatsapp(mensagem)
+  processar_navios()

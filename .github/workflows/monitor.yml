@@ -21,13 +21,18 @@ jobs:
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m pip install -r requirements.txt
+
+      - name: Validar codigo
+        run: python -m compileall -q .
 
       - name: Executar script de monitoramento
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          WHATSAPP_PHONE: ${{ secrets.WHATSAPP_PHONE }}
-          WHATSAPP_API_KEY: ${{ secrets.WHATSAPP_API_KEY }}
+          ZAPI_INSTANCE_ID: ${{ secrets.ZAPI_INSTANCE_ID }}
+          ZAPI_INSTANCE_TOKEN: ${{ secrets.ZAPI_INSTANCE_TOKEN }}
+          ZAPI_CLIENT_TOKEN: ${{ secrets.ZAPI_CLIENT_TOKEN }}
+          ZAPI_PHONE: ${{ secrets.ZAPI_PHONE }}
+          PRATICAGEM_URL: ${{ secrets.PRATICAGEM_URL }}
         run: python main.py
-

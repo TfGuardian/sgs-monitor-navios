@@ -2,7 +2,7 @@ import argparse
 
 import monitor_aps
 import monitor_praticagem
-from whatsapp import enviar_alerta_whatsapp, verificar_whatsapp, verificar_zapi
+from whatsapp import enviar_alerta_whatsapp, verificar_whatsapp
 
 
 def main(dry_run: bool = False) -> None:
@@ -24,11 +24,6 @@ if __name__ == "__main__":
       help="Executa sem alterar o Supabase nem enviar WhatsApp",
   )
   parser.add_argument(
-      "--check-zapi",
-      action="store_true",
-      help="Verifica diretamente a instancia Z-API (compatibilidade)",
-  )
-  parser.add_argument(
       "--check-whatsapp",
       action="store_true",
       help="Verifica o provedor WhatsApp configurado sem enviar mensagem",
@@ -39,9 +34,7 @@ if __name__ == "__main__":
       help="Envia uma mensagem real pelo provedor configurado",
   )
   argumentos = parser.parse_args()
-  if argumentos.check_zapi:
-    verificar_zapi()
-  elif argumentos.check_whatsapp:
+  if argumentos.check_whatsapp:
     verificar_whatsapp()
   elif argumentos.test_whatsapp:
     verificar_whatsapp()

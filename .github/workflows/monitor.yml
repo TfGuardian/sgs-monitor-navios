@@ -1,9 +1,8 @@
 name: Executar Monitor APS
 
 on:
-  schedule:
-    - cron: '*/30 * * * *'  # Executa a cada 30 minutos
-  workflow_dispatch:         # Permite disparar manualmente pelo site do GitHub
+  # O agendamento sera reativado apos a configuracao das credenciais da Meta.
+  workflow_dispatch:
 
 jobs:
   executar-monitor:

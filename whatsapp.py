@@ -24,10 +24,10 @@ def _configuracao_meta() -> tuple[str, str, str, str, str, str]:
       ),
       "Meta WhatsApp",
   )
-  versao = os.getenv("META_GRAPH_API_VERSION", "").strip() or "v25.0"
+  versao = os.getenv("META_GRAPH_API_VERSION", "").strip() or "v26.0"
   idioma = os.getenv("META_TEMPLATE_LANGUAGE", "").strip() or "pt_BR"
   if not versao.startswith("v"):
-    raise RuntimeError("META_GRAPH_API_VERSION deve seguir o formato v25.0")
+    raise RuntimeError("META_GRAPH_API_VERSION deve seguir o formato v26.0")
   return token, phone_number_id, destinatario, template, versao, idioma
 
 

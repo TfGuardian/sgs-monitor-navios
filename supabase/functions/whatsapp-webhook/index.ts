@@ -22,7 +22,7 @@ const META_APP_SECRET = Deno.env.get("META_APP_SECRET") ?? "";
 const META_PHONE_NUMBER_ID = Deno.env.get("META_PHONE_NUMBER_ID") ?? "";
 const META_VERIFY_TOKEN = Deno.env.get("META_VERIFY_TOKEN") ?? "";
 const META_GRAPH_API_VERSION =
-  Deno.env.get("META_GRAPH_API_VERSION")?.trim() || "v25.0";
+  Deno.env.get("META_GRAPH_API_VERSION")?.trim() || "v26.0";
 
 function chaveSupabase(): string {
   const legada = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");

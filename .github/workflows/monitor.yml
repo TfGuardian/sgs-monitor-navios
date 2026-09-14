@@ -1,7 +1,8 @@
 name: Executar Monitor APS
 
 on:
-  # O agendamento sera reativado apos a configuracao das credenciais da Meta.
+  schedule:
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -32,11 +33,10 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
           META_PHONE_NUMBER_ID: ${{ secrets.META_PHONE_NUMBER_ID }}
-          META_RECIPIENT_PHONE: ${{ secrets.META_RECIPIENT_PHONE }}
-          META_TEMPLATE_NAME: ${{ secrets.META_TEMPLATE_NAME }}
-          META_TEMPLATE_LANGUAGE: ${{ secrets.META_TEMPLATE_LANGUAGE }}
-          META_GRAPH_API_VERSION: ${{ secrets.META_GRAPH_API_VERSION }}
-          PRATICAGEM_URL: ${{ secrets.PRATICAGEM_URL }}
-        run: python main.py
+          META_REPORT_TEMPLATE_NAME: ${{ vars.META_REPORT_TEMPLATE_NAME }}
+          META_REPORT_TEMPLATE_LANGUAGE: ${{ vars.META_REPORT_TEMPLATE_LANGUAGE }}
+          RELATORIO_WHATSAPP_ATIVO: ${{ vars.RELATORIO_WHATSAPP_ATIVO }}
+        run: python main.py --sincronizar

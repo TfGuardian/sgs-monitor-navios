@@ -58,6 +58,76 @@ def verificar_meta() -> bool:
   return True
 
 
+def enviar_texto_whatsapp(destinatario: str, texto: str) -> bool:
+  token, phone_number_id = _obrigatorias(
+      ("META_ACCESS_TOKEN", "META_PHONE_NUMBER_ID"), "Meta WhatsApp"
+  )
+  versao = os.getenv("META_GRAPH_API_VERSION", "").strip() or "v26.0"
+  numero = "".join(c for c in destinatario if c.isdigit())
+  if not numero:
+    raise ValueError("Destinatario do WhatsApp invalido")
+  response = requests.post(
+      f"https://graph.facebook.com/{versao}/{phone_number_id}/messages",
+      headers={
+          "Authorization": f"Bearer {token}",
+          "Content-Type": "application/json",
+      },
+      json={
+          "messaging_product": "whatsapp",
+          "recipient_type": "individual",
+          "to": numero,
+          "type": "text",
+          "text": {"preview_url": False, "body": texto[:4096]},
+      },
+      timeout=TIMEOUT,
+  )
+  dados = _resposta_meta(response, "enviar o relatorio")
+  mensagens = dados.get("messages") or []
+  if not mensagens or not mensagens[0].get("id"):
+    raise RuntimeError(f"Meta nao confirmou o envio do relatorio: {dados}")
+  return True
+
+
+def enviar_relatorio_whatsapp(destinatario: str, texto: str) -> bool:
+  """Envia o relatorio por modelo aprovado, inclusive fora da janela de 24h."""
+  token, phone_number_id, template = _obrigatorias(
+      ("META_ACCESS_TOKEN", "META_PHONE_NUMBER_ID", "META_REPORT_TEMPLATE_NAME"),
+      "relatorio Meta WhatsApp",
+  )
+  versao = os.getenv("META_GRAPH_API_VERSION", "").strip() or "v26.0"
+  idioma = os.getenv("META_REPORT_TEMPLATE_LANGUAGE", "").strip() or "pt_BR"
+  numero = "".join(c for c in destinatario if c.isdigit())
+  if not numero:
+    raise ValueError("Destinatario do WhatsApp invalido")
+  response = requests.post(
+      f"https://graph.facebook.com/{versao}/{phone_number_id}/messages",
+      headers={
+          "Authorization": f"Bearer {token}",
+          "Content-Type": "application/json",
+      },
+      json={
+          "messaging_product": "whatsapp",
+          "recipient_type": "individual",
+          "to": numero,
+          "type": "template",
+          "template": {
+              "name": template,
+              "language": {"code": idioma},
+              "components": [{
+                  "type": "body",
+                  "parameters": [{"type": "text", "text": texto[:950]}],
+              }],
+          },
+      },
+      timeout=TIMEOUT,
+  )
+  dados = _resposta_meta(response, "enviar o relatorio horario")
+  mensagens = dados.get("messages") or []
+  if not mensagens or not mensagens[0].get("id"):
+    raise RuntimeError(f"Meta nao confirmou o envio do relatorio: {dados}")
+  return True
+
+
 def _parametro_template(valor: Any) -> dict[str, str]:
   texto = str(valor).strip() if valor not in (None, "") else "N/A"
   return {"type": "text", "text": texto}

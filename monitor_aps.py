@@ -17,7 +17,6 @@ from config import APS_URL, criar_supabase
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; SGS-Monitor-Navios/1.0)"}
 TIMEOUT = (5, 30)
-supabase = criar_supabase()
 Registro = dict[str, Any]
 _BUNDLE_APS: str | bool | None = None
 
@@ -152,6 +151,7 @@ def _mudou(anterior: Registro, novo: Registro) -> bool:
 
 
 def processar_navios(dry_run: bool = False) -> list[Registro]:
+  supabase = criar_supabase()
   registros_aps = coletar_aps()
   resposta = supabase.table("navios_monitorados").select("*").execute()
   monitorados = cast(list[Registro], resposta.data or [])

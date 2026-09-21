@@ -1,9 +1,40 @@
 """Fila de atualizacoes solicitadas por administradores no WhatsApp."""
 import os
+import json
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from consulta_navio import formatar_navio
+
+
+def diagnostico_seguro(erro, etapa):
+  """Registra somente metadados permitidos, nunca texto bruto da excecao."""
+  dados = {"evento": "falha_resultado", "etapa": etapa,
+           "tipo": type(erro).__name__}
+  ausentes = [nome for nome in ("META_ACCESS_TOKEN", "META_PHONE_NUMBER_ID")
+             if not os.getenv(nome, "").strip()]
+  if ausentes:
+    dados["configuracoes_ausentes"] = ausentes
+  atual = erro
+  vistos = set()
+  while atual is not None and id(atual) not in vistos:
+    vistos.add(id(atual))
+    resposta = getattr(atual, "response", None)
+    if resposta is not None:
+      if isinstance(resposta.status_code, int):
+        dados["http_status"] = resposta.status_code
+      try:
+        corpo = resposta.json()
+        meta = corpo.get("error", {}) if isinstance(corpo, dict) else {}
+        if isinstance(meta, dict):
+          for campo in ("code", "error_subcode"):
+            if isinstance(meta.get(campo), int):
+              dados[campo] = meta[campo]
+      except (ValueError, TypeError):
+        pass
+      break
+    atual = atual.__cause__ or atual.__context__
+  print(json.dumps(dados, ensure_ascii=True))
 
 
 def ativo():
@@ -75,13 +106,18 @@ def processar_fila(cliente, coletar, enviar, agora=None):
         salvar({"expirado": True})
         print("Solicitacao expirada; consulte Resumo ou envie novo Atualizar.")
         continue
+      etapa = "enviar_whatsapp"
       try:
         for indice in range(item["proxima_pagina"], len(paginas)):
+          etapa = "enviar_whatsapp"
           enviar(item["telefone"], paginas[indice])
+          etapa = "salvar_progresso_supabase"
           salvar({"proxima_pagina": indice + 1})
+        etapa = "salvar_conclusao_supabase"
         salvar({"enviado": True})
-      except Exception:
+      except Exception as erro:
         falhas += 1
+        diagnostico_seguro(erro, etapa)
         print("Falha ao enviar resultado; nova tentativa na proxima execucao.")
     if falhas:
       raise RuntimeError("Entrega de resultados pendente; consulte a proxima execucao.")

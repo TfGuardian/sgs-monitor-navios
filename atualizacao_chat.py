@@ -41,10 +41,37 @@ def ativo():
   return os.getenv("ATUALIZACAO_CHAT_ATIVA", "").strip().lower() in ("true", "1", "sim")
 
 
+def disparar_github():
+  import requests
+  token = os.getenv("GH_ACTIONS_TOKEN", "").strip()
+  if not token:
+    print('disparo_github: nao_configurado')
+    return False
+  try:
+    resposta = requests.post(
+        "https://api.github.com/repos/TfGuardian/sgs-monitor-navios/actions/workflows/atualizar-chat.yml/dispatches",
+        headers={"Authorization": f"Bearer {token}",
+                 "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2026-03-10",
+                 "User-Agent": "sgs-monitor-navios"},
+        json={"ref": "main"}, timeout=(2, 4), allow_redirects=False,
+    )
+    aceito = 200 <= resposta.status_code < 300
+    print(json.dumps({"evento": "disparo_github", "http_status": resposta.status_code,
+                      "resultado": "aceito" if aceito else "recusado"}))
+    return aceito
+  except requests.RequestException:
+    print('disparo_github: falha_rede_ou_timeout')
+    return False
+
+
 def solicitar(cliente, numero):
   cliente.rpc("solicitar_atualizacao_chat", {"numero": numero}).execute()
-  return ("Atualizacao solicitada. Pedidos durante uma coleta compartilham o resultado. "
-          "Enviarei o resumo ao concluir. O inicio pode levar alguns minutos.")
+  if disparar_github():
+    return ("Atualizacao solicitada e acionamento aceito. Enviarei o resumo ao concluir. "
+            "Pedidos durante a mesma coleta compartilham o resultado; o inicio depende da fila de execucao.")
+  return ("Pedido de atualizacao salvo. Nao foi possivel confirmar o acionamento imediato. "
+          "O pedido aguarda o executor automatico ou uma execucao manual pela equipe.")
 
 
 def dividir(texto, limite=3800):
@@ -61,7 +88,7 @@ def dividir(texto, limite=3800):
            for i, parte in enumerate(partes, 1)] if len(partes) > 1 else partes)
 
 
-def preparar_resultado(cliente, coletar):
+def preparar_resultado(cliente, coletar, candidatos=None):
   from lista_monitoramento import montar_visao_monitorados
   try:
     coletar()
@@ -72,10 +99,35 @@ def preparar_resultado(cliente, coletar):
   momento = datetime.now(timezone.utc).astimezone(
       ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
   navios = montar_visao_monitorados(cliente)
+  if candidatos is not None:
+    candidatos.extend(candidatos_indisponiveis(navios))
   cabecalho = f"ATUALIZACAO CONCLUIDA — {momento} (Brasilia)"
   cabecalho += "\nAusencia nas fontes nao confirma saida do porto."
   texto = "\n\n".join(formatar_navio(n) for n in navios)
   return dividir(cabecalho + "\n\n" + (texto or "Nenhum navio acompanhado.")), "sucesso"
+
+
+def candidatos_indisponiveis(navios):
+  return [{"id": n["lista_monitoramento_id"], "nome": n.get("nome")}
+          for n in navios if n.get("lista_monitoramento_id") is not None
+          and str(n.get("situacao") or "indisponivel").lower() == "indisponivel"]
+
+
+def oferecer_remocao(cliente, lote_id, item, enviar, salvar):
+  proposta = cliente.rpc("oferecer_remocao_indisponiveis", {
+      "lote": lote_id, "numero": item["telefone"],
+  }).execute().data
+  if not isinstance(proposta, dict) or not proposta.get("ids"):
+    return
+  texto = ("NAVIOS INDISPONIVEIS NA ATUALIZACAO\n\n" +
+           "\n".join(f"- {nome}" for nome in proposta["nomes"]) +
+           "\n\nDeseja remover esses navios da lista compartilhada? "
+           "Responda CONFIRMAR ou SIM para remover; CANCELAR ou NAO para manter. "
+           "A confirmacao vale por 10 minutos. Navios que voltarem a ter dados serao preservados.")
+  perguntas = dividir(texto)
+  for indice in range(item.get("proxima_pergunta", 0), len(perguntas)):
+    enviar(item["telefone"], perguntas[indice])
+    salvar({"proxima_pergunta": indice + 1})
 
 
 def processar_fila(cliente, coletar, enviar, agora=None):
@@ -88,7 +140,9 @@ def processar_fila(cliente, coletar, enviar, agora=None):
   try:
     paginas = lote.get("paginas")
     if lote["estado"] != "pronto":
-      paginas, resultado = preparar_resultado(cliente, coletar)
+      candidatos = []
+      paginas, resultado = preparar_resultado(cliente, coletar, candidatos)
+      cliente.table("atualizacoes_chat").update({"indisponiveis": candidatos}).eq("id", lote_id).execute()
       cliente.rpc("finalizar_coleta_chat", {
           "lote": lote_id, "conteudo": paginas, "resultado_coleta": resultado,
       }).execute()
@@ -113,6 +167,8 @@ def processar_fila(cliente, coletar, enviar, agora=None):
           enviar(item["telefone"], paginas[indice])
           etapa = "salvar_progresso_supabase"
           salvar({"proxima_pagina": indice + 1})
+        etapa = "oferecer_remocao_indisponiveis"
+        oferecer_remocao(cliente, lote_id, item, enviar, salvar)
         etapa = "salvar_conclusao_supabase"
         salvar({"enviado": True})
       except Exception as erro:

@@ -32,14 +32,20 @@ def _ajuda(admin: bool) -> str:
   comandos = [
       "Envie o nome do navio para consultar.",
       "Consultar: NAVIO A; NAVIO B",
-      "Listar monitorados",
-      "Receber relatorio",
-      "Parar relatorio",
+      "Lista",
+      "Resumo",
+      "Assinar",
+      "Parar",
+      "Cancelar",
   ]
   if admin:
+    from atualizacao_chat import ativo
+    if ativo():
+      comandos.append("Atualizar")
     comandos.extend((
         "Adicionar: NAVIO A; NAVIO B",
         "Remover: NAVIO A; NAVIO B",
+        "Confirmar",
     ))
   return "COMANDOS DISPONIVEIS\n\n" + "\n".join(f"- {item}" for item in comandos)
 
@@ -92,15 +98,31 @@ def processar_chat(cliente, remetente: str, texto: str) -> str:
   comando = normalizar(mensagem)
   admin = eh_administrador(cliente, remetente)
 
+  if comando == "ATUALIZAR":
+    if not admin:
+      return "Seu numero nao possui permissao administrativa."
+    from atualizacao_chat import ativo, solicitar
+    if not ativo():
+      return "Atualizacao sob demanda ainda nao esta ativa. Use Resumo."
+    from lista_monitoramento import normalizar_telefone
+    return solicitar(cliente, normalizar_telefone(remetente))
   if comando in ("AJUDA", "MENU", "COMANDOS"):
     return _ajuda(admin)
-  if comando == "RECEBER RELATORIO":
+  if comando in ("ASSINAR", "RECEBER RELATORIO"):
     definir_relatorio(cliente, remetente, True)
-    return "Inscricao realizada. Voce recebera o relatorio horario."
-  if comando == "PARAR RELATORIO":
+    return "Inscricao realizada. O recebimento depende da rotina de envio estar ativa."
+  if comando in ("PARAR", "PARAR RELATORIO"):
     definir_relatorio(cliente, remetente, False)
     return "Envio do relatorio cancelado."
-  if comando == "LISTAR MONITORADOS":
+  if comando == "RESUMO":
+    navios = montar_visao_monitorados(cliente)
+    cabecalho = "RESUMO — ultimos dados salvos; este comando nao faz nova coleta."
+    if not navios:
+      return cabecalho + "\n\nNenhum navio esta sendo acompanhado."
+    return cabecalho + "\n\n" + "\n\n--------------------\n\n".join(
+        formatar_navio(navio) for navio in navios
+    )
+  if comando in ("LISTA", "LISTAR MONITORADOS"):
     navios = montar_visao_monitorados(cliente)
     if not navios:
       return "Nenhum navio esta sendo acompanhado."
@@ -114,7 +136,7 @@ def processar_chat(cliente, remetente: str, texto: str) -> str:
     removidos = confirmar_remocao(cliente, remetente)
     return (
         "Removidos:\n" + "\n".join(f"- {nome}" for nome in removidos)
-        if removidos else "Nao existe uma remocao pendente ou ela expirou."
+        if removidos else "Nenhum navio removido. A confirmacao pode ter expirado, ja ter sido respondida ou os navios voltaram a ter dados."
     )
   if comando in ("NAO", "CANCELAR"):
     cancelar_confirmacao(cliente, remetente)

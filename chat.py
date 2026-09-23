@@ -3,6 +3,7 @@ from typing import Any
 
 from consulta_navio import (
     formatar_navio,
+    formatar_resumo,
     localizar_navios,
     normalizar,
     separar_termos,
@@ -29,25 +30,13 @@ def _argumentos(texto: str, comando: str) -> list[str]:
 
 
 def _ajuda(admin: bool) -> str:
-  comandos = [
-      "Envie o nome do navio para consultar.",
-      "Consultar: NAVIO A; NAVIO B",
-      "Lista",
-      "Resumo",
-      "Assinar",
-      "Parar",
-      "Cancelar",
-  ]
+  from atualizacao_chat import ativo
+  texto = '🚢 *Monitor de Navios*\n\nDigite o *nome do navio* ou utilize os comandos abaixo.\n\n*Consultas*\n\n🔎 *Consultar NOME* — detalhes do navio\n📋 *Lista* — navios monitorados\n📊 *Resumo* — dados da última coleta'
+  if admin and ativo():
+    texto += "\n🔄 *Atualizar* — buscar dados novos"
   if admin:
-    from atualizacao_chat import ativo
-    if ativo():
-      comandos.append("Atualizar")
-    comandos.extend((
-        "Adicionar: NAVIO A; NAVIO B",
-        "Remover: NAVIO A; NAVIO B",
-        "Confirmar",
-    ))
-  return "COMANDOS DISPONIVEIS\n\n" + "\n".join(f"- {item}" for item in comandos)
+    texto += '\n\n*Gerenciar a lista*\n\n➕ *Adicionar NOME* — incluir navio\n➖ *Remover NOME* — solicitar remoção\n✅ *Confirmar* — aprovar remoção\n↩️ *Cancelar* — cancelar solicitação'
+  return texto + '\n\n*Relatórios*\n\n🔔 *Assinar* — receber relatórios\n🔕 *Parar* — suspender relatórios'
 
 
 def _resultado_adicao(resultado: Registro) -> str:
@@ -56,41 +45,41 @@ def _resultado_adicao(resultado: Registro) -> str:
   existentes = resultado.get("existentes") or []
   ausentes = resultado.get("nao_encontrados") or []
   if adicionados:
-    partes.append("Adicionados:\n" + "\n".join(f"- {n}" for n in adicionados))
+    partes.append(("✅ *Navio adicionado*" if len(adicionados) == 1 else "✅ *Navios adicionados*") + "\n\n" + "\n".join(f"🚢 *{n}*" for n in adicionados) + "\n\nInclusão na *lista de monitoramento* realizada.")
   if existentes:
-    partes.append("Ja acompanhados:\n" + "\n".join(f"- {n}" for n in existentes))
+    partes.append(("ℹ️ *Navio já monitorado*" if len(existentes) == 1 else "ℹ️ *Navios já monitorados*") + "\n\n" + "\n".join(f"🚢 *{n}*" for n in existentes))
   for item in ausentes:
-    trecho = f"Nao encontrado: {item['termo']}"
+    trecho = f"🔎 *Navio não localizado nas fontes do porto*\n\n*{item['termo']}* não foi adicionado.\n\nConfira o nome e tente novamente."
     if item.get("sugestoes"):
-      trecho += "\nVoce quis dizer: " + ", ".join(item["sugestoes"])
+      trecho += "\n\n*Nomes semelhantes*\n\n" + "\n".join(f"🚢 *{nome}*" for nome in item["sugestoes"])
     partes.append(trecho)
-  return "\n\n".join(partes) or "Nenhum navio foi informado."
+  return "\n\n".join(partes) or "🔎 *Informe o navio*\n\nEnvie o *nome completo* do navio."
 
 
 def _consultar(texto: str, navios: list[Registro]) -> str:
   termos = separar_termos(texto)
   if not termos:
-    return "Informe o nome do navio que deseja consultar."
+    return "🔎 *Informe o navio*\n\nEnvie *Consultar ECO CZAR* ou apenas *ECO CZAR*."
   respostas: list[str] = []
   for termo in termos:
     encontrados = localizar_navios(termo, navios)
     if len(encontrados) == 1:
       respostas.append(formatar_navio(encontrados[0]))
     elif len(encontrados) > 1:
-      opcoes = "\n".join(f"- {n.get('nome')}" for n in encontrados[:8])
+      opcoes = "\n".join(f"🚢 *{n.get('nome')}*" for n in encontrados[:8])
       respostas.append(
-          f'Encontrei mais de um resultado para "{termo}":\n{opcoes}\n'
-          "Informe o nome completo."
+          f'🔎 *Mais de um navio encontrado*\n\nResultados para *{termo}*:\n\n{opcoes}\n\n'
+          "Envie o *nome completo* do navio desejado."
       )
     else:
       sugestoes = sugerir_navios(termo, navios)
-      resposta = f'O navio "{termo}" nao esta na lista de acompanhamento.'
+      resposta = f'🔎 *Navio não encontrado*\n\n*{termo}* não consta na lista de monitoramento.\n\nEnvie *Lista* para consultar os nomes cadastrados.'
       if sugestoes:
-        resposta += "\n\nVoce quis dizer:\n" + "\n".join(
-            f"- {nome}" for nome in sugestoes
+        resposta += "\n\n*Nomes semelhantes*\n\n" + "\n".join(
+            f"🚢 *{nome}*" for nome in sugestoes
         )
       respostas.append(resposta)
-  return "\n\n--------------------\n\n".join(respostas)
+  return "\n\n───────────────\n\n".join(respostas)
 
 
 def processar_chat(cliente, remetente: str, texto: str) -> str:
@@ -100,74 +89,78 @@ def processar_chat(cliente, remetente: str, texto: str) -> str:
 
   if comando == "ATUALIZAR":
     if not admin:
-      return "Seu numero nao possui permissao administrativa."
+      return "🔒 *Acesso restrito*\n\nEste comando está disponível apenas para *administradores*."
     from atualizacao_chat import ativo, solicitar
     if not ativo():
-      return "Atualizacao sob demanda ainda nao esta ativa. Use Resumo."
+      return "ℹ️ *Atualização temporariamente indisponível*\n\nEnvie *Resumo* para consultar os dados da última coleta."
     from lista_monitoramento import normalizar_telefone
     return solicitar(cliente, normalizar_telefone(remetente))
-  if comando in ("AJUDA", "MENU", "COMANDOS"):
+  if comando in ("AJUDA", "MENU", "COMANDOS", "OI", "OLA", "BOM DIA", "BOA TARDE", "BOA NOITE"):
     return _ajuda(admin)
   if comando in ("ASSINAR", "RECEBER RELATORIO"):
     definir_relatorio(cliente, remetente, True)
-    return "Inscricao realizada. O recebimento depende da rotina de envio estar ativa."
+    return "🔔 *Inscrição realizada*\n\nO recebimento de relatórios está habilitado para este número.\n\nOs relatórios serão enviados quando o *envio automático estiver ativo*."
   if comando in ("PARAR", "PARAR RELATORIO"):
     definir_relatorio(cliente, remetente, False)
-    return "Envio do relatorio cancelado."
+    return "🔕 *Recebimento de relatórios desativado*\n\nPara reativar, envie *Assinar*."
   if comando == "RESUMO":
     navios = montar_visao_monitorados(cliente)
-    cabecalho = "RESUMO — ultimos dados salvos; este comando nao faz nova coleta."
+    cabecalho = "📊 *Resumo dos navios*\n\nInformações da *última coleta*."
     if not navios:
-      return cabecalho + "\n\nNenhum navio esta sendo acompanhado."
-    return cabecalho + "\n\n" + "\n\n--------------------\n\n".join(
-        formatar_navio(navio) for navio in navios
+      return cabecalho + "\n\n📋 *Lista de monitoramento vazia*\n\nPara incluir um navio, um administrador deve enviar *Adicionar NOME*."
+    return cabecalho + "\n\n" + "\n\n───────────────\n\n".join(
+        formatar_resumo(navio) for navio in navios
     )
   if comando in ("LISTA", "LISTAR MONITORADOS"):
     navios = montar_visao_monitorados(cliente)
     if not navios:
-      return "Nenhum navio esta sendo acompanhado."
-    return "NAVIOS ACOMPANHADOS\n\n" + "\n".join(
-        f"{indice}. {navio.get('nome')}"
+      return "📋 *Lista de monitoramento vazia*\n\nPara incluir um navio, um administrador deve enviar *Adicionar NOME*."
+    return "📋 *Navios monitorados*\n\n" + "\n".join(
+        f"{indice}. *{navio.get('nome')}*"
         for indice, navio in enumerate(navios, start=1)
-    )
+    ) + "\n\n🔎 Para consultar os detalhes, envie o *nome do navio*."
   if comando in ("SIM", "CONFIRMAR"):
     if not admin:
-      return "Seu numero nao possui permissao administrativa."
+      return "🔒 *Acesso restrito*\n\nEste comando está disponível apenas para *administradores*."
     removidos = confirmar_remocao(cliente, remetente)
     return (
-        "Removidos:\n" + "\n".join(f"- {nome}" for nome in removidos)
-        if removidos else "Nenhum navio removido. A confirmacao pode ter expirado, ja ter sido respondida ou os navios voltaram a ter dados."
+        "✅ *Remoção concluída*\n\n" + "\n".join(f"🚢 *{nome}*" for nome in removidos) + "\n\nRemoção da *lista de monitoramento* realizada."
+        if removidos else "ℹ️ *Nenhum navio removido*\n\nA solicitação não está mais válida ou os dados dos navios voltaram a ficar disponíveis.\n\nEnvie *Lista* para conferir o monitoramento atual."
     )
   if comando in ("NAO", "CANCELAR"):
     cancelar_confirmacao(cliente, remetente)
-    return "Operacao cancelada."
+    return "↩️ *Solicitação cancelada*\n\nA lista de monitoramento foi *mantida*."
   if comando.startswith("ADICIONAR"):
     if not admin:
-      return "Seu numero nao possui permissao para adicionar navios."
+      return "🔒 *Inclusão restrita*\n\nApenas *administradores* podem adicionar navios à lista."
     termos = _argumentos(mensagem, "adicionar")
     if not termos:
-      return 'Use: Adicionar: NAVIO A; NAVIO B'
+      return '➕ *Informe o navio para adicionar*\n\nExemplo: *Adicionar ECO CZAR*\n\nPara vários navios, separe os nomes com *;*\n*Adicionar ECO CZAR; AETERNO*'
     from sincronizador import coletar_catalogo_completo
-    catalogo, _, _, _ = coletar_catalogo_completo()
-    resultado = adicionar_navios(
-        cliente, termos, remetente, catalogo
-    )
+    try:
+      catalogo, _, _, _ = coletar_catalogo_completo()
+    except Exception:
+      return "⚠️ *Cadastro não realizado*\n\nNão foi possível consultar as fontes do porto.\n\n*Nenhum navio foi adicionado.* Tente novamente em instantes."
+    try:
+      resultado = adicionar_navios(cliente, termos, remetente, catalogo)
+    except Exception:
+      return "⚠️ *Cadastro não concluído*\n\nParte do pedido pode ter sido salva.\n\nEnvie *Lista* para conferir antes de tentar novamente."
     return _resultado_adicao(resultado)
   if comando.startswith("REMOVER"):
     if not admin:
-      return "Seu numero nao possui permissao para remover navios."
+      return "🔒 *Remoção restrita*\n\nApenas *administradores* podem remover navios da lista."
     termos = _argumentos(mensagem, "remover")
     if not termos:
-      return 'Use: Remover: NAVIO A; NAVIO B'
+      return '➖ *Informe o navio para remover*\n\nExemplo: *Remover ECO CZAR*\n\nPara vários navios, separe os nomes com *;*\n*Remover ECO CZAR; AETERNO*'
     resultado = preparar_remocao(cliente, remetente, termos)
     selecionados = resultado.get("selecionados") or []
     if not selecionados:
-      return "Nenhum dos navios informados esta na lista."
-    resposta = "Confirma a remocao?\n\n" + "\n".join(
-        f"- {nome}" for nome in selecionados
-    ) + "\n\nResponda SIM para confirmar ou NAO para cancelar."
+      return "🔎 *Nenhum navio selecionado*\n\nOs nomes informados não foram encontrados na lista.\n\nEnvie *Lista* para conferir os nomes cadastrados."
+    resposta = "🗑️ *Solicitação de remoção*\n\n" + "\n".join(
+        f"🚢 *{nome}*" for nome in selecionados
+    ) + "\n\n😺 Posso remover estes navios da lista?\n\n*Confirmar* — remover\n*Cancelar* — manter\n\n⏳ Confirmação válida por *10 minutos*."
     if resultado.get("nao_encontrados"):
-      resposta += "\n\nNao encontrados: " + ", ".join(resultado["nao_encontrados"])
+      resposta += "\n\n*Nomes não encontrados na lista*\n\n" + ", ".join(resultado["nao_encontrados"]) + "\n\nA confirmação vale apenas para os navios selecionados acima."
     return resposta
 
   consulta = (

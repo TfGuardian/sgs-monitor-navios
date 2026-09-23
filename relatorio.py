@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from consulta_navio import formatar_data_operacional, situacao_atual
+from consulta_navio import formatar_resumo
 
 Registro = dict[str, Any]
 FUSO_BRASILIA = ZoneInfo("America/Sao_Paulo")
@@ -13,22 +13,14 @@ def _valor(valor: Any) -> str:
 
 
 def bloco_navio(navio: Registro, indice: int) -> str:
-  return "\n".join((
-      f"{indice}. {str(navio.get('nome') or 'N/A').upper()}",
-      f"IMO: {_valor(navio.get('imo'))}",
-      f"ETA: {formatar_data_operacional(navio.get('eta'))}",
-      f"ETB: {formatar_data_operacional(navio.get('etb'))}",
-      f"Local: {_valor(navio.get('local'))}",
-      f"Evento: {_valor(navio.get('evento'))}",
-      f"Situacao: {situacao_atual(navio)}",
-  ))
+  return formatar_resumo(navio)
 
 
 def montar_relatorio(navios: list[Registro], limite: int = 3800) -> list[str]:
   horario = datetime.now(FUSO_BRASILIA).strftime("%d/%m/%Y %H:%M")
-  cabecalho = f"RELATORIO DE NAVIOS - {horario}"
+  cabecalho = f"🚢 *Relatório de navios*\n\n🕒 *Emitido em:* {horario}\nHorário de Brasília."
   if not navios:
-    return [cabecalho + "\n\nNenhum navio esta sendo acompanhado."]
+    return [cabecalho + "\n\nA lista de monitoramento está *vazia*."]
 
   blocos = [bloco_navio(navio, indice)
             for indice, navio in enumerate(navios, start=1)]
@@ -45,6 +37,6 @@ def montar_relatorio(navios: list[Registro], limite: int = 3800) -> list[str]:
 
   if len(paginas) > 1:
     total = len(paginas)
-    paginas = [f"{pagina}\n\nParte {indice} de {total}"
+    paginas = [f"{pagina}\n\n📄 *Parte {indice} de {total}*"
                for indice, pagina in enumerate(paginas, start=1)]
   return paginas

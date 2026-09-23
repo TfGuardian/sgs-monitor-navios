@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from consulta_navio import formatar_navio
+from consulta_navio import formatar_resumo
 
 
 def diagnostico_seguro(erro, etapa):
@@ -68,10 +68,8 @@ def disparar_github():
 def solicitar(cliente, numero):
   cliente.rpc("solicitar_atualizacao_chat", {"numero": numero}).execute()
   if disparar_github():
-    return ("Atualizacao solicitada e acionamento aceito. Enviarei o resumo ao concluir. "
-            "Pedidos durante a mesma coleta compartilham o resultado; o inicio depende da fila de execucao.")
-  return ("Pedido de atualizacao salvo. Nao foi possivel confirmar o acionamento imediato. "
-          "O pedido aguarda o executor automatico ou uma execucao manual pela equipe.")
+    return "⏳ *Atualização solicitada*\n\nO *resumo atualizado* será enviado por aqui após a conclusão da coleta."
+  return "⏳ *Pedido registrado*\n\nNão foi possível iniciar a coleta agora. A solicitação permanece na *fila de processamento*."
 
 
 def dividir(texto, limite=3800):
@@ -84,7 +82,7 @@ def dividir(texto, limite=3800):
         fim = quebra + 1
     partes.append(texto[:fim])
     texto = texto[fim:]
-  return ([f"Parte {i} de {len(partes)}\n\n{parte}"
+  return ([f"📄 *Parte {i} de {len(partes)}*\n\n{parte}"
            for i, parte in enumerate(partes, 1)] if len(partes) > 1 else partes)
 
 
@@ -94,17 +92,16 @@ def preparar_resultado(cliente, coletar, candidatos=None):
     coletar()
   except Exception:
     # O detalhe tecnico permanece no historico de coletas. Nao expor credenciais.
-    return ["Nao foi possivel concluir a atualizacao. Os dados anteriores podem "
-            "estar desatualizados. Use Resumo para consulta-los ou tente Atualizar novamente."], "falha"
+    return ["⚠️ *Atualização não concluída*\n\nNão foi possível concluir a coleta neste momento.\n\n"
+            "Envie *Atualizar* para tentar novamente ou *Resumo* para consultar os dados salvos (podem estar desatualizados)."], "falha"
   momento = datetime.now(timezone.utc).astimezone(
       ZoneInfo("America/Sao_Paulo")).strftime("%d/%m/%Y %H:%M")
   navios = montar_visao_monitorados(cliente)
   if candidatos is not None:
     candidatos.extend(candidatos_indisponiveis(navios))
-  cabecalho = f"ATUALIZACAO CONCLUIDA — {momento} (Brasilia)"
-  cabecalho += "\nAusencia nas fontes nao confirma saida do porto."
-  texto = "\n\n".join(formatar_navio(n) for n in navios)
-  return dividir(cabecalho + "\n\n" + (texto or "Nenhum navio acompanhado.")), "sucesso"
+  cabecalho = f"✅ *Atualização concluída*\n\n🕒 *Concluída em:* {momento}\nHorário de Brasília."
+  texto = "\n\n".join(formatar_resumo(n) for n in navios)
+  return dividir(cabecalho + "\n\n" + (texto or "A lista de monitoramento está *vazia*.")), "sucesso"
 
 
 def candidatos_indisponiveis(navios):
@@ -119,11 +116,13 @@ def oferecer_remocao(cliente, lote_id, item, enviar, salvar):
   }).execute().data
   if not isinstance(proposta, dict) or not proposta.get("ids"):
     return
-  texto = ("NAVIOS INDISPONIVEIS NA ATUALIZACAO\n\n" +
-           "\n".join(f"- {nome}" for nome in proposta["nomes"]) +
-           "\n\nDeseja remover esses navios da lista compartilhada? "
-           "Responda CONFIRMAR ou SIM para remover; CANCELAR ou NAO para manter. "
-           "A confirmacao vale por 10 minutos. Navios que voltarem a ter dados serao preservados.")
+  texto = ("⚪ *Navios com dados indisponíveis*\n\n"
+           "Os seguintes navios não foram localizados nas fontes da *última coleta*:\n\n" +
+           "\n".join(f"🚢 *{nome}*" for nome in proposta["nomes"]) +
+           "\n\n😺 Posso removê-los da lista de monitoramento?\n\n"
+           "*Confirmar* — remover\n*Cancelar* — manter\n\n"
+           "⏳ Confirmação válida por *10 minutos*.\n\n"
+           "Se os dados voltarem antes da confirmação, o navio será mantido.")
   perguntas = dividir(texto)
   for indice in range(item.get("proxima_pergunta", 0), len(perguntas)):
     enviar(item["telefone"], perguntas[indice])

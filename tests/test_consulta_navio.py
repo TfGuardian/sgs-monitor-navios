@@ -49,11 +49,12 @@ class ConsultaNavioTest(unittest.TestCase):
     }
     self.assertEqual(situacao_atual(navio, agora), "DESATUALIZADO")
 
-  def test_resposta_contem_os_dez_campos(self):
-    texto = formatar_navio({"nome": "NAVIO A", "situacao": "atualizado"})
-    for campo in ("Nome:", "IMO:", "ETA:", "ETB:", "Local:", "Evento:",
-                  "Fonte:", "Ultima consulta:", "Ultima alteracao:", "Situacao:"):
+  def test_detalhes_omitem_campos_vazios_e_preservam_dados(self):
+    texto = formatar_navio({"nome": "NAVIO A", "situacao": "atualizado", "imo": "111", "evento": "ATRACADO", "fonte": "APS_ATRACADOS"})
+    for campo in ("🚢 *NAVIO A*", "*IMO:* 111", "🟢 *Atracado*", "*Fonte:* Navios atracados"):
       self.assertIn(campo, texto)
+    self.assertNotIn("N/A", texto)
+    self.assertNotIn("Previsões", texto)
 
   def test_data_operacional_e_padronizada(self):
     self.assertEqual(

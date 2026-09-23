@@ -117,16 +117,57 @@ def _exibir(valor: Any) -> str:
   return str(valor).strip() if valor not in (None, "") else "N/A"
 
 
+def estado_operacional(navio: Registro) -> tuple[str, str]:
+  evento = normalizar(navio.get("evento"))
+  fontes = normalizar(navio.get("fonte")).replace("_", " ").split(" ")
+  if evento == "ATRACADO" or "ATRACADOS" in fontes:
+    return "🟢", "Atracado"
+  if evento in ("AGUARDANDO ATRACACAO", "ATRACACAO PROGRAMADA", "PROGRAMADO") or (not evento and "PROGRAMADAS" in fontes):
+    return "🟡", "Aguardando atracação"
+  return "⚪", str(navio.get("evento") or "Situação não informada")
+
+
+def _formatar(navio: Registro, agora: datetime | None, completo: bool) -> str:
+  blocos = (["🔎 *Detalhes do navio*"] if completo else [])
+  identidade = f"🚢 *{_exibir(navio.get('nome'))}*"
+  if completo and navio.get("imo"):
+    identidade += f"\n*IMO:* {navio['imo']}"
+  blocos.append(identidade)
+  indisponivel = normalizar(navio.get("situacao") or "indisponivel") == "INDISPONIVEL"
+  antigo = situacao_atual(navio, agora) == "DESATUALIZADO"
+  if indisponivel:
+    blocos.extend(["⚪ *Dados indisponíveis*", "Não localizado nas fontes consultadas nesta coleta."])
+  else:
+    emoji, estado = estado_operacional(navio)
+    if antigo:
+      blocos.extend(["⚠️ *Dados desatualizados*", "As informações abaixo correspondem à última consulta disponível."])
+    status = f"*Última situação registrada:* {estado}" if antigo else f"{emoji} *{estado}*"
+    if navio.get("local") and navio["local"] != "N/A":
+      status += f"\n📍 *{'Destino' if emoji == '🟡' else 'Local'}:* {navio['local']}"
+    blocos.append(status)
+    previsoes = []
+    for campo, rotulo in (("eta", "Chegada (ETA)"), ("etb", "Atracação (ETB)" if completo else "Atracação prevista")):
+      if navio.get(campo) and navio[campo] != "N/A":
+        previsoes.append(f"{'⏳ ' if campo == 'etb' else ''}*{rotulo}:* {formatar_data_operacional(navio[campo])}")
+    if previsoes:
+      blocos.append(("*Previsões*\n\n" if completo else "") + "\n".join(previsoes))
+  dados = []
+  if navio.get("ultima_consulta"):
+    dados.append(f"🕒 *{'Última consulta' if completo else 'Consulta'}:* {formatar_data(navio['ultima_consulta'])}")
+  if completo:
+    if navio.get("ultima_alteracao"):
+      dados.append(f"*Última alteração:* {formatar_data(navio['ultima_alteracao'])}")
+    if navio.get("fonte"):
+      fonte = str(navio['fonte']).replace("APS_ATRACACOES_PROGRAMADAS", "Atracações programadas").replace("APS_ATRACADOS", "Navios atracados").replace("APS_PAINEL", "Painel do porto")
+      dados.append(f"*Fonte:* {fonte}")
+  if dados:
+    blocos.append(("*Atualização dos dados*\n\n" if completo else "") + "\n".join(dados))
+  return "\n\n".join(blocos)
+
+
+def formatar_resumo(navio: Registro, agora: datetime | None = None) -> str:
+  return _formatar(navio, agora, False)
+
+
 def formatar_navio(navio: Registro, agora: datetime | None = None) -> str:
-  return "\n".join((
-      f"Nome: {_exibir(navio.get('nome'))}",
-      f"IMO: {_exibir(navio.get('imo'))}",
-      f"ETA: {formatar_data_operacional(navio.get('eta'))}",
-      f"ETB: {formatar_data_operacional(navio.get('etb'))}",
-      f"Local: {_exibir(navio.get('local'))}",
-      f"Evento: {_exibir(navio.get('evento'))}",
-      f"Fonte: {_exibir(navio.get('fonte'))}",
-      f"Ultima consulta: {formatar_data(navio.get('ultima_consulta'))}",
-      f"Ultima alteracao: {formatar_data(navio.get('ultima_alteracao'))}",
-      f"Situacao: {situacao_atual(navio, agora)}",
-  ))
+  return _formatar(navio, agora, True)

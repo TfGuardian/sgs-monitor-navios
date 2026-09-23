@@ -117,20 +117,40 @@ def _exibir(valor: Any) -> str:
   return str(valor).strip() if valor not in (None, "") else "N/A"
 
 
-def estado_operacional(navio: Registro) -> tuple[str, str]:
-  evento = normalizar(navio.get("evento"))
-  fontes = normalizar(navio.get("fonte")).replace("_", " ").split(" ")
-  if evento == "SITUACAO_EM_VERIFICACAO":
-    return "⚠️", "Situação em verificação"
+def etapa_evento(valor):
+  evento = re.sub(r"[^A-Z0-9 ]", " ", normalizar(valor))
+  evento = re.sub(r"\s+", " ", evento).strip()
+  if evento in ("SAIDA CONFIRMADA", "SAIU"):
+    return 7, "🚢", "Saída confirmada"
+  if evento == "DESATRACADO":
+    return 6, "🚢", "Desatracado"
+  if evento in ("DESATRACANDO", "EM DESATRACACAO"):
+    return 6, "🚢", "Desatracando"
+  if evento in ("AG DESATRACACAO", "AGUARDANDO DESATRACACAO", "AGUARD DESATRACACAO", "AGUAR DESATRACACAO"):
+    return 5, "🟢", "Aguardando desatracação"
+  if evento in ("OPERANDO", "OPERANDO BOMBEANDO", "EM OPERACAO"):
+    return 4, "🟢", "Operando"
+  if evento == "ATRACADO":
+    return 3, "🟢", "Atracado"
+  if evento in ("ATRACANDO", "EM ATRACACAO"):
+    return 2, "🚢", "Atracando"
   if evento == "FUNDEADO":
-    return "⚓", "Fundeado"
-  if evento == "ATRACADO" or "ATRACADOS" in fontes:
+    return 1, "⚓", "Fundeado"
+  if evento in ("ATRACACAO", "ATRACACAO PROGRAMADA", "PROGRAMADO", "AGUARDANDO ATRACACAO"):
+    return 0, "🟡", "Atracação programada"
+  return 0, "⚪", str(valor or "Situação não informada")
+
+
+def estado_operacional(navio: Registro) -> tuple[str, str]:
+  if normalizar(navio.get("evento")) == "SITUACAO_EM_VERIFICACAO":
+    return "⚠️", "Situação em verificação"
+  rank, emoji, estado = etapa_evento(navio.get("evento"))
+  fontes = str(navio.get("fonte") or "").split(" + ")
+  if rank < 3 and "APS_ATRACADOS" in fontes:
     return "🟢", "Atracado"
-  if evento in ("ATRACACAO", "ATRACANDO"):
-    return "🟡", "Atracação programada" if evento == "ATRACACAO" else "Atracando"
-  if evento in ("AGUARDANDO ATRACACAO", "ATRACACAO PROGRAMADA", "PROGRAMADO") or (not evento and "PROGRAMADAS" in fontes):
+  if not navio.get("evento") and "APS_ATRACACOES_PROGRAMADAS" in fontes:
     return "🟡", "Atracação programada"
-  return "⚪", str(navio.get("evento") or "Situação não informada")
+  return emoji, estado
 
 
 def _formatar(navio: Registro, agora: datetime | None, completo: bool) -> str:
@@ -153,7 +173,7 @@ def _formatar(navio: Registro, agora: datetime | None, completo: bool) -> str:
     blocos.append(status)
     previsoes = []
     for campo, rotulo in (("eta", "Chegada (ETA)"), ("etb", "Atracado" if emoji == "🟢" else "Atracação prevista")):
-      if campo == "etb" and emoji == "🟢":
+      if campo == "etb" and etapa_evento(navio.get("evento"))[0] >= 3:
         continue
       if navio.get(campo) and navio[campo] != "N/A":
         previsoes.append(f"{('✅ ' if emoji == '🟢' else '⏳ ') if campo == 'etb' else ''}*{rotulo}:* {formatar_data_operacional(navio[campo])}")

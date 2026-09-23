@@ -102,15 +102,18 @@ aborta o catálogo antes de sincronizar ou propor remoções. Uma tabela reconhe
 é diferente de uma página de erro. Terminal dos fundeados é exibido como terminal previsto.
 Chegada/Arrival não é convertida em ETA, data de fundeio ou atualização da fonte.
 
-O cruzamento usa IMO quando disponível (ignorando zeros iniciais), nome normalizado,
-viagem e DUV. Divergências de escala, homônimos com IMO distintos, duplicatas ambíguas
-ou presença simultânea em fundeados e atracados resultam em Situação em verificação.
-Não há desempate por ordem de download ou por ETB. Ainda não há data efetiva de
-atualização comum às fontes que permita resolver esses casos automaticamente.
+O cruzamento usa IMO/nome e exclui registros incompatíveis com a viagem/DUV
+identificada na relação de posição. A etapa confirmada mais avançada prevalece:
+fundeado, atracando, atracado, operando, aguardando desatracação, desatracando,
+saída confirmada. Desatracado não é tratado como saída do porto.
+Programação não comprova avanço. A presença simultânea em fundeados/atracados
+não gera Situação em verificação: prevalece atracado ou uma etapa posterior
+confirmada no painel. Sem identificadores de escala, a associação depende do
+nome e da atualidade das páginas: não é possível comprovar a escala nesse caso.
 
 A programação fornece ETA/ETB; não comprova manobra em andamento. Para atracados,
 o ETB é omitido: não deve ser rotulado como data efetiva de atracação. Uma fonte
 explícita de data efetiva será necessária para exibir Atracado em com segurança.
 
-Validação: 75 testes Python; cenários TypeScript de cruzamento e apresentação;
+Validação: 77 testes Python; cenários TypeScript de cruzamento e apresentação;
 coleta real das quatro páginas somente de leitura, sem banco nem WhatsApp.

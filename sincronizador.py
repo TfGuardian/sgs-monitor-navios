@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from time import sleep
 from typing import Any, Callable, cast
 
-from consulta_navio import formatar_data_operacional, normalizar
+from consulta_navio import formatar_data_operacional, normalizar, etapa_evento
 
 Registro = dict[str, Any]
 CAMPOS_DADOS = (
@@ -102,39 +102,40 @@ def mesclar_fontes(painel, programadas, atracados=None, fundeados=None):
         grupos.append([navio])
   resultado = []
   for grupo in grupos:
-    # Base operacional mantida, mas previsão é obtida da programação quando existe.
-    base = dict(grupo[0])
-    for n in grupo[1:]:
+    # A lista de posição identifica a escala; registros incompatíveis não avançam o status.
+    identificados = [n for n in grupo if n.get("viagem") or n.get("duv")]
+    referencia = next((n for fonte in ("APS_FUNDEADOS", "APS_ATRACADOS")
+                       for n in identificados if n["fonte"] == fonte),
+                      max(identificados or grupo, key=_data_operacao))
+    atuais = [n for n in grupo if not _escala_conflitante(n, referencia)
+              and not (_imo(n.get("imo")) and _imo(referencia.get("imo")) and not _mesmo_navio(n, referencia))]
+    programacao = [n for n in atuais if n["fonte"] == "APS_ATRACACOES_PROGRAMADAS"]
+    painel_atual = [n for n in atuais if n["fonte"] == "APS_PAINEL"]
+    base = dict(max(programacao or painel_atual or atuais, key=_data_operacao))
+    for n in painel_atual:
       for c, v in n.items():
         if v not in (None, ""):
           base[c] = v
-    fontes = list(dict.fromkeys(n["fonte"] for n in grupo))
-    conflito = any(_escala_conflitante(a, b) or
-                   (_imo(a.get("imo")) and _imo(b.get("imo")) and not _mesmo_navio(a, b))
-                   for i, a in enumerate(grupo) for b in grupo[i+1:])
-    # Homônimos/duplicatas sem identificador de escala não comprovam uma única escala.
-    for fonte in fontes:
-      registros = [n for n in grupo if n["fonte"] == fonte]
-      if len(registros) > 1 and any(not n.get("viagem") and not n.get("duv") for n in registros):
-        conflito = conflito or any(n != registros[0] for n in registros[1:])
-    atracado, fundeado = "APS_ATRACADOS" in fontes, "APS_FUNDEADOS" in fontes
-    if conflito or (atracado and fundeado):
-      base["evento"] = "SITUACAO_EM_VERIFICACAO"
-      for c in ("eta", "etb", "local"):
-        base[c] = None
-    else:
-      programacao = [n for n in grupo if n["fonte"] == "APS_ATRACACOES_PROGRAMADAS"]
-      if programacao:
-        for c in ("eta", "etb"):
-          base[c] = programacao[-1].get(c)
-      if atracado:
-        base["evento"] = "ATRACADO"
-        base["etb"] = None  # ETB não comprova a data efetiva de atracação.
-      elif fundeado:
-        base["evento"] = "FUNDEADO"
-      elif normalizar(base.get("evento")) in ("ATRACACAO", "PROGRAMADO", "ATRACACAO PROGRAMADA"):
-        base["evento"] = "ATRACACAO PROGRAMADA"
-    base["fonte"] = " + ".join(fontes)
+    candidatos = []
+    for n in atuais:
+      evento = ("ATRACADO" if n["fonte"] == "APS_ATRACADOS" else
+                "FUNDEADO" if n["fonte"] == "APS_FUNDEADOS" else n.get("evento"))
+      # Programação jamais comprova operação, atracação ou saída realizada.
+      if n["fonte"] == "APS_ATRACACOES_PROGRAMADAS":
+        evento = "ATRACACAO PROGRAMADA"
+      candidatos.append((etapa_evento(evento)[0], n, evento))
+    rank, escolhido, evento = max(candidatos, key=lambda item: item[0])
+    if rank > 0:
+      base["evento"] = evento
+      base["local"] = escolhido.get("local")
+    elif normalizar(base.get("evento")) in ("ATRACACAO", "PROGRAMADO", "ATRACACAO PROGRAMADA"):
+      base["evento"] = "ATRACACAO PROGRAMADA"
+    if programacao:
+      for c in ("eta", "etb"):
+        base[c] = max(programacao, key=_data_operacao).get(c)
+    if rank >= 3:
+      base["etb"] = None
+    base["fonte"] = " + ".join(dict.fromkeys(n["fonte"] for n in atuais))
     resultado.append(base)
   return resultado
 

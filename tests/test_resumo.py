@@ -18,7 +18,7 @@ class ResumoTest(unittest.TestCase):
     self.assertEqual(estado_operacional({"evento":"ATRACADO"}), ("🟢", "Atracado"))
     self.assertEqual(estado_operacional({"fonte":"APS_ATRACACOES_PROGRAMADAS"}), ("🟡", "Atracação programada"))
     self.assertEqual(estado_operacional({"fonte":"APS_ATRACACOES_PROGRAMADAS + APS_ATRACADOS"}), ("🟢", "Atracado"))
-    self.assertEqual(estado_operacional({"evento":"DESATRACADO"})[0], "⚪")
+    self.assertEqual(estado_operacional({"evento":"DESATRACADO"})[0], "🚢")
     self.assertEqual(estado_operacional({"evento":"SAIDA", "fonte":"APS_ATRACACOES_PROGRAMADAS"})[1], "SAIDA")
 
   def test_indisponivel_nao_exibe_estado_operacional_antigo(self):
@@ -37,6 +37,6 @@ class ResumoTest(unittest.TestCase):
       self.assertNotIn("⏳", atracado)
       for evento, status in (("ATRACAÇÃO", "Atracação programada"), ("ATRACANDO", "Atracando")):
         previsto = formatar(dict(base, evento=evento))
-        self.assertIn(f"🟡 *{status}*", previsto)
+        self.assertIn(f"{'🚢' if evento == 'ATRACANDO' else '🟡'} *{status}*", previsto)
         self.assertIn("⏳ *Atracação prevista:*", previsto)
         self.assertNotIn("✅", previsto)

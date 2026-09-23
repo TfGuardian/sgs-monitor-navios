@@ -24,18 +24,32 @@ class FundeadosTest(unittest.TestCase):
     self.assertIn('⚓ *Fundeado*',texto)
     self.assertIn('Terminal previsto',texto)
 
-  def test_conflitos_nao_sao_resolvidos_pela_ordem(self):
-    for a,b in [({'nome':'A'},{'nome':'A'}),({'nome':'A','viagem':'1'},{'nome':'A','viagem':'2'})]:
-      r=mesclar_fontes([],[],[a],[b])[0]
-      self.assertEqual(r['evento'],'SITUACAO_EM_VERIFICACAO')
-      self.assertIsNone(r['etb'])
-      self.assertIn('⚠️ *Situação em verificação*',formatar_resumo(dict(r,situacao='atualizado')))
+  def test_etapa_posterior_prevalece_sobre_fundeio(self):
+    for evento in ('ATRACANDO','ATRACADO','OPERANDO','OPERANDO/BOMBEANDO','AG/DESATRACACAO','DESATRACANDO','SAIDA CONFIRMADA'):
+      with self.subTest(evento=evento):
+        r=mesclar_fontes([{'nome':'A','evento':evento,'viagem':'1','local':'BERCO'}],[],[],[{'nome':'A','viagem':'1','local':'TERMINAL'}])[0]
+        self.assertEqual(r['evento'],evento)
+        self.assertEqual(r['local'],'BERCO')
+    r=mesclar_fontes([],[],[{'nome':'A','local':'BERCO'}],[{'nome':'A','local':'TERMINAL'}])[0]
+    self.assertEqual(r['evento'],'ATRACADO')
+    self.assertIn('🟢 *Atracado*',formatar_resumo(dict(r,situacao='atualizado')))
 
-  def test_escala_distinta_e_homonimos(self):
-    for p,f in [({'nome':'A','viagem':'1'},{'nome':'A','viagem':'2'}),({'nome':'A','imo':'111'},{'nome':'A','imo':'222'})]:
-      r=mesclar_fontes([],[p],[],[f])
-      self.assertEqual(len(r),1)
-      self.assertEqual(r[0]['evento'],'SITUACAO_EM_VERIFICACAO')
+  def test_escala_antiga_nao_avanca_fundeado_atual(self):
+    r=mesclar_fontes([{'nome':'A','evento':'OPERANDO','viagem':'antiga'}],[],[],[{'nome':'A','viagem':'atual'}])[0]
+    self.assertEqual(r['evento'],'FUNDEADO')
+    self.assertNotIn('APS_PAINEL',r['fonte'])
+
+  def test_programacao_nao_confirma_saida(self):
+    r=mesclar_fontes([], [{'nome':'A','evento':'DESATRACACAO','etb':'amanhã'}],[],[{'nome':'A'}])[0]
+    self.assertEqual(r['evento'],'FUNDEADO')
+
+  def test_operando_nao_vira_atracado_no_formatador(self):
+    r=mesclar_fontes([{'nome':'A','evento':'OPERANDO'}],[],[{'nome':'A'}],[{'nome':'A'}])[0]
+    self.assertEqual(r['evento'],'OPERANDO')
+    self.assertIn('🟢 *Operando*',formatar_resumo(dict(r,situacao='atualizado')))
+    from consulta_navio import etapa_evento
+    self.assertEqual(etapa_evento('AG/DESATRACACAO')[2],'Aguardando desatracação')
+    self.assertEqual(etapa_evento('DESATRACACAO')[0],0)
 
   def test_falha_fundeados_aborta_catalogo(self):
     with patch('monitor_aps.coletar_aps', return_value=[{'nome':str(i)} for i in range(60)]), patch('monitor_atracacoes.coletar_atracacoes_programadas',return_value=[]), patch('monitor_atracados.coletar_navios_atracados',return_value=[]), patch('monitor_fundeados.coletar_navios_fundeados',side_effect=RuntimeError('falha')), patch('sincronizador.sleep'):

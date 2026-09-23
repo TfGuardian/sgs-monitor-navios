@@ -78,26 +78,39 @@ function dataHora(valor: unknown): string {
   }).format(data);
 }
 
+function etapaEvento(valor: unknown): [number, string, string] {
+  const e = normalizar(valor);
+  if (["SAIDA CONFIRMADA", "SAIU"].includes(e)) return [7, "🚢", "Saída confirmada"];
+  if (e === "DESATRACADO") return [6, "🚢", "Desatracado"];
+  if (["DESATRACANDO", "EM DESATRACACAO"].includes(e)) return [6, "🚢", "Desatracando"];
+  if (["AG DESATRACACAO", "AGUARDANDO DESATRACACAO", "AGUARD DESATRACACAO", "AGUAR DESATRACACAO"].includes(e)) return [5, "🟢", "Aguardando desatracação"];
+  if (["OPERANDO", "OPERANDO BOMBEANDO", "EM OPERACAO"].includes(e)) return [4, "🟢", "Operando"];
+  if (e === "ATRACADO") return [3, "🟢", "Atracado"];
+  if (["ATRACANDO", "EM ATRACACAO"].includes(e)) return [2, "🚢", "Atracando"];
+  if (e === "FUNDEADO") return [1, "⚓", "Fundeado"];
+  if (["ATRACACAO", "ATRACACAO PROGRAMADA", "PROGRAMADO", "AGUARDANDO ATRACACAO"].includes(e)) return [0, "🟡", "Atracação programada"];
+  return [0, "⚪", String(valor || "Situação não informada")];
+}
+
 function formatarDados(navio: Navio, completo: boolean): string {
   const blocos = completo ? ["🔎 *Detalhes do navio*"] : [];
   blocos.push(`🚢 *${navio.nome || "N/A"}*` + (completo && navio.imo ? `\n*IMO:* ${navio.imo}` : ""));
   const indisponivel = normalizar(navio.situacao || "indisponivel") === "INDISPONIVEL";
   const antigo = normalizar(navio.situacao) === "DESATUALIZADO" || Boolean(navio.ultima_consulta && Date.now() - new Date(navio.ultima_consulta).getTime() > 7200000);
-  const evento = normalizar(navio.evento), fontes = normalizar(navio.fonte).split(" ");
-  const conflito = evento === "SITUACAO EM VERIFICACAO";
-  const fundeado = evento === "FUNDEADO";
-  const atracado = !conflito && !fundeado && (evento === "ATRACADO" || fontes.includes("ATRACADOS"));
-  const aguardando = !atracado && (["ATRACACAO", "ATRACANDO", "AGUARDANDO ATRACACAO", "ATRACACAO PROGRAMADA", "PROGRAMADO"].includes(evento) || (!evento && fontes.includes("PROGRAMADAS")));
-  const estado = conflito ? "Situação em verificação" : fundeado ? "Fundeado" : atracado ? "Atracado" : aguardando ? (evento === "ATRACACAO" ? "Atracação programada" : evento === "ATRACANDO" ? "Atracando" : "Atracação programada") : navio.evento || "Situação não informada";
+  const fontes = String(navio.fonte || "").split(" + ");
+  let [rank, emoji, estado] = etapaEvento(navio.evento);
+  if (normalizar(navio.evento) === "SITUACAO EM VERIFICACAO") { emoji = "⚠️"; estado = "Situação em verificação"; }
+  else if (rank < 3 && fontes.includes("APS_ATRACADOS")) { rank = 3; emoji = "🟢"; estado = "Atracado"; }
+  else if (!navio.evento && fontes.includes("APS_ATRACACOES_PROGRAMADAS")) { emoji = "🟡"; estado = "Atracação programada"; }
   if (indisponivel) blocos.push("⚪ *Dados indisponíveis*", "Não localizado nas fontes consultadas nesta coleta.");
   else {
     if (antigo) blocos.push("⚠️ *Dados desatualizados*", "As informações abaixo correspondem à última consulta disponível.");
-    let status = antigo ? `*Última situação registrada:* ${estado}` : `${conflito ? "⚠️" : fundeado ? "⚓" : atracado ? "🟢" : aguardando ? "🟡" : "⚪"} *${estado}*`;
-    if (navio.local && navio.local !== "N/A") status += `\n📍 *${aguardando || fundeado ? "Terminal previsto" : "Local"}:* ${navio.local}`;
+    let status = antigo ? `*Última situação registrada:* ${estado}` : `${emoji} *${estado}*`;
+    if (navio.local && navio.local !== "N/A") status += `\n📍 *${rank < 3 ? "Terminal previsto" : "Local"}:* ${navio.local}`;
     blocos.push(status);
     const previsoes = [];
     if (navio.eta && navio.eta !== "N/A") previsoes.push(`*Chegada (ETA):* ${navio.eta}`);
-    if (!atracado && navio.etb && navio.etb !== "N/A") previsoes.push(`${atracado ? "✅" : "⏳"} *${atracado ? "Atracado" : "Atracação prevista"}:* ${navio.etb}`);
+    if (rank < 3 && navio.etb && navio.etb !== "N/A") previsoes.push(`⏳ *Atracação prevista:* ${navio.etb}`);
     if (previsoes.length) blocos.push((completo ? "*Datas*\n\n" : "") + previsoes.join("\n"));
   }
   const dados = [];
@@ -288,27 +301,34 @@ function mesclarFontes(painel: Navio[], programadas: Navio[], atracados: Navio[]
       for (const outro of candidatos.slice(1)) { candidatos[0].push(...outro); grupos.splice(grupos.indexOf(outro), 1); }
     }
   }
+  const data = (n: Navio): number => {
+    for (const c of ["etb", "eta"]) {
+      const v = String(n[c] || "");
+      const m = v.match(/^(\d{2})\/(\d{2})\/(\d{2}|\d{4}) (\d{2}):(\d{2})(?::\d{2})?$/);
+      if (m) return Date.UTC(Number(m[3]) < 100 ? 2000 + Number(m[3]) : Number(m[3]), Number(m[2])-1, Number(m[1]), Number(m[4]), Number(m[5]));
+      if (/^\d{4}-\d{2}-\d{2} /.test(v)) return Date.parse(v) || 0;
+    }
+    return 0;
+  };
+  const recente = (ns: Navio[]) => ns.reduce((a,b) => data(b) > data(a) ? b : a);
   return grupos.map(grupo => {
-    const base: Navio = {...grupo[0]};
-    for (const n of grupo.slice(1)) for (const [c,v] of Object.entries(n)) if (v != null && v !== "") base[c] = v;
-    const fontes = [...new Set(grupo.map(n => String(n.fonte)))];
-    let conflito = grupo.some((a,i) => grupo.slice(i+1).some(b =>
-      ["viagem", "duv"].some(c => a[c] && b[c] && normalizar(a[c]) !== normalizar(b[c])) || (imo(a) && imo(b) && !mesmo(a,b))));
-    for (const fonte of fontes) {
-      const registros = grupo.filter(n => n.fonte === fonte);
-      if (registros.length > 1 && registros.some(n => !n.viagem && !n.duv)) conflito ||= registros.slice(1).some(n => JSON.stringify(n) !== JSON.stringify(registros[0]));
-    }
-    const atracado = fontes.includes("APS_ATRACADOS"), fundeado = fontes.includes("APS_FUNDEADOS");
-    if (conflito || (atracado && fundeado)) {
-      base.evento = "SITUACAO_EM_VERIFICACAO"; base.eta = null; base.etb = null; base.local = null;
-    } else {
-      const programacao = grupo.filter(n => n.fonte === "APS_ATRACACOES_PROGRAMADAS");
-      if (programacao.length) { base.eta = programacao.at(-1)?.eta; base.etb = programacao.at(-1)?.etb; }
-      if (atracado) { base.evento = "ATRACADO"; base.etb = null; }
-      else if (fundeado) base.evento = "FUNDEADO";
-      else if (["ATRACACAO", "PROGRAMADO", "ATRACACAO PROGRAMADA"].includes(normalizar(base.evento))) base.evento = "ATRACACAO PROGRAMADA";
-    }
-    base.fonte = fontes.join(" + ");
+    const identificados = grupo.filter(n => n.viagem || n.duv);
+    const referencia = identificados.find(n => n.fonte === "APS_FUNDEADOS") || identificados.find(n => n.fonte === "APS_ATRACADOS") || recente(identificados.length ? identificados : grupo);
+    const atuais = grupo.filter(n => !["viagem", "duv"].some(c => n[c] && referencia[c] && normalizar(n[c]) !== normalizar(referencia[c])) && !(imo(n) && imo(referencia) && !mesmo(n,referencia)));
+    const programacao = atuais.filter(n => n.fonte === "APS_ATRACACOES_PROGRAMADAS");
+    const painelAtual = atuais.filter(n => n.fonte === "APS_PAINEL");
+    const base: Navio = {...recente(programacao.length ? programacao : painelAtual.length ? painelAtual : atuais)};
+    for (const n of painelAtual) for (const [c,v] of Object.entries(n)) if (v != null && v !== "") base[c] = v;
+    const candidatos = atuais.map(n => {
+      const evento = n.fonte === "APS_ATRACADOS" ? "ATRACADO" : n.fonte === "APS_FUNDEADOS" ? "FUNDEADO" : n.fonte === "APS_ATRACACOES_PROGRAMADAS" ? "ATRACACAO PROGRAMADA" : String(n.evento || "");
+      return {rank: etapaEvento(evento)[0], n, evento};
+    });
+    const escolhido = candidatos.reduce((a,b) => b.rank > a.rank ? b : a);
+    if (escolhido.rank > 0) { base.evento = escolhido.evento; base.local = escolhido.n.local; }
+    else if (["ATRACACAO", "PROGRAMADO", "ATRACACAO PROGRAMADA"].includes(normalizar(base.evento))) base.evento = "ATRACACAO PROGRAMADA";
+    if (programacao.length) { base.eta = recente(programacao).eta; base.etb = recente(programacao).etb; }
+    if (escolhido.rank >= 3) base.etb = null;
+    base.fonte = [...new Set(atuais.map(n => n.fonte))].join(" + ");
     return base;
   });
 }

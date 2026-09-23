@@ -122,6 +122,8 @@ def estado_operacional(navio: Registro) -> tuple[str, str]:
   fontes = normalizar(navio.get("fonte")).replace("_", " ").split(" ")
   if evento == "ATRACADO" or "ATRACADOS" in fontes:
     return "🟢", "Atracado"
+  if evento in ("ATRACACAO", "ATRACANDO"):
+    return "🟡", "Atracação" if evento == "ATRACACAO" else "Atracando"
   if evento in ("AGUARDANDO ATRACACAO", "ATRACACAO PROGRAMADA", "PROGRAMADO") or (not evento and "PROGRAMADAS" in fontes):
     return "🟡", "Aguardando atracação"
   return "⚪", str(navio.get("evento") or "Situação não informada")
@@ -146,11 +148,11 @@ def _formatar(navio: Registro, agora: datetime | None, completo: bool) -> str:
       status += f"\n📍 *{'Destino' if emoji == '🟡' else 'Local'}:* {navio['local']}"
     blocos.append(status)
     previsoes = []
-    for campo, rotulo in (("eta", "Chegada (ETA)"), ("etb", "Atracação (ETB)" if completo else "Atracação prevista")):
+    for campo, rotulo in (("eta", "Chegada (ETA)"), ("etb", "Atracado" if emoji == "🟢" else "Atracação prevista")):
       if navio.get(campo) and navio[campo] != "N/A":
-        previsoes.append(f"{'⏳ ' if campo == 'etb' else ''}*{rotulo}:* {formatar_data_operacional(navio[campo])}")
+        previsoes.append(f"{('✅ ' if emoji == '🟢' else '⏳ ') if campo == 'etb' else ''}*{rotulo}:* {formatar_data_operacional(navio[campo])}")
     if previsoes:
-      blocos.append(("*Previsões*\n\n" if completo else "") + "\n".join(previsoes))
+      blocos.append(("*Datas*\n\n" if completo else "") + "\n".join(previsoes))
   dados = []
   if navio.get("ultima_consulta"):
     dados.append(f"🕒 *{'Última consulta' if completo else 'Consulta'}:* {formatar_data(navio['ultima_consulta'])}")

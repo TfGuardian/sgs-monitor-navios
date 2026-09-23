@@ -113,12 +113,17 @@ def processar_chat(cliente, remetente: str, texto: str) -> str:
     )
   if comando in ("LISTA", "LISTAR MONITORADOS"):
     navios = montar_visao_monitorados(cliente)
+    from lista_monitoramento import normalizar_telefone
+    cliente.table("listas_exibidas_chat").upsert({
+        "telefone": normalizar_telefone(remetente),
+        "itens": [n.get("lista_monitoramento_id") for n in navios],
+    }, on_conflict="telefone").execute()
     if not navios:
       return "📋 *Lista de monitoramento vazia*\n\nPara incluir um navio, um administrador deve enviar *Adicionar NOME*."
     return "📋 *Navios monitorados*\n\n" + "\n".join(
         f"{indice}. *{navio.get('nome')}*"
         for indice, navio in enumerate(navios, start=1)
-    ) + "\n\n🔎 Para consultar os detalhes, envie o *nome do navio*."
+    ) + "\n\n🔎 Para consultar os detalhes, envie o *número da lista* ou o *nome do navio*."
   if comando in ("SIM", "CONFIRMAR"):
     if not admin:
       return "🔒 *Acesso restrito*\n\nEste comando está disponível apenas para *administradores*."
@@ -162,6 +167,24 @@ def processar_chat(cliente, remetente: str, texto: str) -> str:
     if resultado.get("nao_encontrados"):
       resposta += "\n\n*Nomes não encontrados na lista*\n\n" + ", ".join(resultado["nao_encontrados"]) + "\n\nA confirmação vale apenas para os navios selecionados acima."
     return resposta
+
+  # Seven-digit input remains an IMO lookup; list positions use up to six digits.
+  if re.fullmatch(r"[0-9]{1,6}", mensagem):
+    from lista_monitoramento import normalizar_telefone
+    registros = cliente.table("listas_exibidas_chat").select("itens").eq(
+        "telefone", normalizar_telefone(remetente)).limit(1).execute().data or []
+    if not registros or not registros[0]["itens"]:
+      return "📋 *Lista necessária*\n\nEnvie *Lista* e depois o *número do navio* desejado."
+    itens = registros[0]["itens"]
+    posicao = int(mensagem)
+    if not 1 <= posicao <= len(itens):
+      return f"🔎 *Número fora da lista*\n\nDigite um número de *1 a {len(itens)}* ou envie *Lista* novamente."
+    selecionado = next((n for n in montar_visao_monitorados(cliente)
+                         if n.get("lista_monitoramento_id") is not None
+                         and n["lista_monitoramento_id"] == itens[posicao - 1]), None)
+    if selecionado is None:
+      return "ℹ️ *Navio não monitorado*\n\nEste navio não está mais na lista. Envie *Lista* para consultar a relação atual."
+    return formatar_navio(selecionado)
 
   consulta = (
       _argumentos(mensagem, "consultar")

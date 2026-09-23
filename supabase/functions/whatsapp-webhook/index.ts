@@ -82,8 +82,8 @@ function formatarDados(navio: Navio, completo: boolean): string {
   const antigo = normalizar(navio.situacao) === "DESATUALIZADO" || Boolean(navio.ultima_consulta && Date.now() - new Date(navio.ultima_consulta).getTime() > 7200000);
   const evento = normalizar(navio.evento), fontes = normalizar(navio.fonte).split(" ");
   const atracado = evento === "ATRACADO" || fontes.includes("ATRACADOS");
-  const aguardando = !atracado && (["AGUARDANDO ATRACACAO", "ATRACACAO PROGRAMADA", "PROGRAMADO"].includes(evento) || (!evento && fontes.includes("PROGRAMADAS")));
-  const estado = atracado ? "Atracado" : aguardando ? "Aguardando atracação" : navio.evento || "Situação não informada";
+  const aguardando = !atracado && (["ATRACACAO", "ATRACANDO", "AGUARDANDO ATRACACAO", "ATRACACAO PROGRAMADA", "PROGRAMADO"].includes(evento) || (!evento && fontes.includes("PROGRAMADAS")));
+  const estado = atracado ? "Atracado" : aguardando ? (evento === "ATRACACAO" ? "Atracação" : evento === "ATRACANDO" ? "Atracando" : "Aguardando atracação") : navio.evento || "Situação não informada";
   if (indisponivel) blocos.push("⚪ *Dados indisponíveis*", "Não localizado nas fontes consultadas nesta coleta.");
   else {
     if (antigo) blocos.push("⚠️ *Dados desatualizados*", "As informações abaixo correspondem à última consulta disponível.");
@@ -92,8 +92,8 @@ function formatarDados(navio: Navio, completo: boolean): string {
     blocos.push(status);
     const previsoes = [];
     if (navio.eta && navio.eta !== "N/A") previsoes.push(`*Chegada (ETA):* ${navio.eta}`);
-    if (navio.etb && navio.etb !== "N/A") previsoes.push(`⏳ *${completo ? "Atracação (ETB)" : "Atracação prevista"}:* ${navio.etb}`);
-    if (previsoes.length) blocos.push((completo ? "*Previsões*\n\n" : "") + previsoes.join("\n"));
+    if (navio.etb && navio.etb !== "N/A") previsoes.push(`${atracado ? "✅" : "⏳"} *${atracado ? "Atracado" : "Atracação prevista"}:* ${navio.etb}`);
+    if (previsoes.length) blocos.push((completo ? "*Datas*\n\n" : "") + previsoes.join("\n"));
   }
   const dados = [];
   if (navio.ultima_consulta) dados.push(`🕒 *${completo ? "Última consulta" : "Consulta"}:* ${dataHora(navio.ultima_consulta)}`);
@@ -530,8 +530,13 @@ async function respostaComando(remetente: string, texto: string): Promise<string
   }
   if (["LISTA", "LISTAR MONITORADOS"].includes(comando)) {
     const navios = await visaoMonitorados();
+    const { error } = await supabase.from("listas_exibidas_chat").upsert({
+      telefone: telefone(remetente), itens: navios.map((n) => n.lista_monitoramento_id),
+      atualizado_em: new Date().toISOString(),
+    }, { onConflict: "telefone" });
+    if (error) throw error;
     return navios.length ? "📋 *Navios monitorados*\n\n" +
-      navios.map((n, i) => `${i + 1}. *${n.nome}*`).join("\n") + "\n\n🔎 Para consultar os detalhes, envie o *nome do navio*." : "📋 *Lista de monitoramento vazia*\n\nPara incluir um navio, um administrador deve enviar *Adicionar NOME*.";
+      navios.map((n, i) => `${i + 1}. *${n.nome}*`).join("\n") + "\n\n🔎 Para consultar os detalhes, envie o *número da lista* ou o *nome do navio*." : "📋 *Lista de monitoramento vazia*\n\nPara incluir um navio, um administrador deve enviar *Adicionar NOME*.";
   }
   if (["SIM", "CONFIRMAR"].includes(comando)) return admin
     ? await confirmarRemocao(remetente) : "🔒 *Acesso restrito*\n\nEste comando está disponível apenas para *administradores*.";
@@ -548,6 +553,18 @@ async function respostaComando(remetente: string, texto: string): Promise<string
     if (!admin) return "🔒 *Remoção restrita*\n\nApenas *administradores* podem remover navios da lista.";
     const itens = argumentos(texto, "remover");
     return itens.length ? await prepararRemocao(remetente, itens) : "➖ *Informe o navio para remover*\n\nExemplo: *Remover ECO CZAR*\n\nPara vários navios, separe os nomes com *;*\n*Remover ECO CZAR; AETERNO*";
+  }
+  if (/^[0-9]{1,6}$/.test(texto.trim())) {
+    const { data, error } = await supabase.from("listas_exibidas_chat").select("itens")
+      .eq("telefone", telefone(remetente)).limit(1);
+    if (error) throw error;
+    const itens = data?.[0]?.itens as (number | null)[] | undefined;
+    if (!itens?.length) return "📋 *Lista necessária*\n\nEnvie *Lista* e depois o *número do navio* desejado.";
+    const posicao = Number(texto.trim());
+    if (posicao < 1 || posicao > itens.length) return `🔎 *Número fora da lista*\n\nDigite um número de *1 a ${itens.length}* ou envie *Lista* novamente.`;
+    const navios = await visaoMonitorados();
+    const selecionado = navios.find((n) => n.lista_monitoramento_id != null && n.lista_monitoramento_id === itens[posicao - 1]);
+    return selecionado ? formatarNavio(selecionado) : "ℹ️ *Navio não monitorado*\n\nEste navio não está mais na lista. Envie *Lista* para consultar a relação atual.";
   }
   const navios = await visaoMonitorados();
   const consultas = comando.startsWith("CONSULTAR") ? argumentos(texto, "consultar") : termos(texto);

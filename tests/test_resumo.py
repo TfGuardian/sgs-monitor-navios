@@ -26,3 +26,17 @@ class ResumoTest(unittest.TestCase):
     self.assertIn("Dados indisponíveis", texto)
     self.assertNotIn("🟢", texto)
     self.assertNotIn("Local", texto)
+
+  def test_atracado_e_atracacao_tem_data_e_emoji_coerentes(self):
+    from consulta_navio import formatar_navio
+    for formatar in (formatar_resumo, formatar_navio):
+      base = {"nome":"A", "situacao":"atualizado", "etb":"24/09/2026 08:00"}
+      atracado = formatar(dict(base, evento="ATRACADO"))
+      self.assertIn("🟢 *Atracado*", atracado)
+      self.assertIn("✅ *Atracado:* 24/09/2026 08:00", atracado)
+      self.assertNotIn("⏳", atracado)
+      for evento, status in (("ATRACAÇÃO", "Atracação"), ("ATRACANDO", "Atracando")):
+        previsto = formatar(dict(base, evento=evento))
+        self.assertIn(f"🟡 *{status}*", previsto)
+        self.assertIn("⏳ *Atracação prevista:*", previsto)
+        self.assertNotIn("✅", previsto)

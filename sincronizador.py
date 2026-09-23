@@ -71,54 +71,71 @@ def consolidar_coleta(registros: list[Registro]) -> list[Registro]:
   return list(consolidados.values())
 
 
-def mesclar_fontes(
-    painel: list[Registro],
-    programadas: list[Registro],
-    atracados: list[Registro] | None = None,
-) -> list[Registro]:
-  """Combina programacao, painel operacional e posicao de atracados."""
-  resultado = [dict(navio) for navio in consolidar_coleta(programadas)]
-  por_imo = {_imo(n.get("imo")): n for n in resultado if _imo(n.get("imo"))}
-  por_nome = {normalizar(n.get("nome")): n for n in resultado}
+def _mesmo_navio(a, b):
+  ia, ib = _imo(a.get("imo")).lstrip("0"), _imo(b.get("imo")).lstrip("0")
+  if ia and ib:
+    return ia == ib
+  return normalizar(a.get("nome")) == normalizar(b.get("nome"))
 
-  for navio_painel in consolidar_coleta(painel):
-    imo = _imo(navio_painel.get("imo"))
-    encontrado = por_imo.get(imo) if imo else None
-    encontrado = encontrado or por_nome.get(normalizar(navio_painel.get("nome")))
-    if encontrado is None:
-      novo = dict(navio_painel)
-      novo["fonte"] = "APS_PAINEL"
-      resultado.append(novo)
-      por_nome[normalizar(novo.get("nome"))] = novo
-      if _imo(novo.get("imo")):
-        por_imo[_imo(novo.get("imo"))] = novo
-      continue
 
-    for campo, valor in navio_painel.items():
-      if valor not in (None, ""):
-        encontrado[campo] = valor
-    encontrado["fonte"] = "APS_PAINEL + APS_ATRACACOES_PROGRAMADAS"
+def _escala_conflitante(a, b):
+  return any(a.get(c) and b.get(c) and normalizar(a[c]) != normalizar(b[c])
+             for c in ("viagem", "duv"))
 
-  por_imo = {_imo(n.get("imo")): n for n in resultado if _imo(n.get("imo"))}
-  por_nome = {normalizar(n.get("nome")): n for n in resultado}
-  for navio_atracado in consolidar_coleta(atracados or []):
-    imo = _imo(navio_atracado.get("imo"))
-    encontrado = por_imo.get(imo) if imo else None
-    encontrado = encontrado or por_nome.get(normalizar(navio_atracado.get("nome")))
-    if encontrado is None:
-      novo = dict(navio_atracado)
-      novo["evento"] = "ATRACADO"
-      novo["fonte"] = "APS_ATRACADOS"
-      resultado.append(novo)
-      continue
-    for campo in ("nome", "local"):
-      if navio_atracado.get(campo) not in (None, ""):
-        encontrado[campo] = navio_atracado[campo]
-    fontes = str(encontrado.get("fonte") or "").split(" + ")
-    if "APS_ATRACADOS" not in fontes:
-      fontes.append("APS_ATRACADOS")
-    encontrado["evento"] = "ATRACADO"
-    encontrado["fonte"] = " + ".join(fonte for fonte in fontes if fonte)
+
+def mesclar_fontes(painel, programadas, atracados=None, fundeados=None):
+  """Não resolve conflitos por ordem de coleta ou por data prevista."""
+  grupos = []
+  for fonte, registros in (("APS_ATRACACOES_PROGRAMADAS", programadas),
+                           ("APS_PAINEL", painel), ("APS_ATRACADOS", atracados or []),
+                           ("APS_FUNDEADOS", fundeados or [])):
+    for original in registros:
+      navio = dict(original, fonte=fonte)
+      candidatos = [g for g in grupos if any(_mesmo_navio(n, navio) or normalizar(n.get("nome")) == normalizar(navio.get("nome")) for n in g)]
+      if candidatos:
+        grupo = candidatos[0]
+        grupo.append(navio)
+        for outro in candidatos[1:]:
+          grupo.extend(outro)
+          grupos.remove(outro)
+      else:
+        grupos.append([navio])
+  resultado = []
+  for grupo in grupos:
+    # Base operacional mantida, mas previsão é obtida da programação quando existe.
+    base = dict(grupo[0])
+    for n in grupo[1:]:
+      for c, v in n.items():
+        if v not in (None, ""):
+          base[c] = v
+    fontes = list(dict.fromkeys(n["fonte"] for n in grupo))
+    conflito = any(_escala_conflitante(a, b) or
+                   (_imo(a.get("imo")) and _imo(b.get("imo")) and not _mesmo_navio(a, b))
+                   for i, a in enumerate(grupo) for b in grupo[i+1:])
+    # Homônimos/duplicatas sem identificador de escala não comprovam uma única escala.
+    for fonte in fontes:
+      registros = [n for n in grupo if n["fonte"] == fonte]
+      if len(registros) > 1 and any(not n.get("viagem") and not n.get("duv") for n in registros):
+        conflito = conflito or any(n != registros[0] for n in registros[1:])
+    atracado, fundeado = "APS_ATRACADOS" in fontes, "APS_FUNDEADOS" in fontes
+    if conflito or (atracado and fundeado):
+      base["evento"] = "SITUACAO_EM_VERIFICACAO"
+      for c in ("eta", "etb", "local"):
+        base[c] = None
+    else:
+      programacao = [n for n in grupo if n["fonte"] == "APS_ATRACACOES_PROGRAMADAS"]
+      if programacao:
+        for c in ("eta", "etb"):
+          base[c] = programacao[-1].get(c)
+      if atracado:
+        base["evento"] = "ATRACADO"
+        base["etb"] = None  # ETB não comprova a data efetiva de atracação.
+      elif fundeado:
+        base["evento"] = "FUNDEADO"
+      elif normalizar(base.get("evento")) in ("ATRACACAO", "PROGRAMADO", "ATRACACAO PROGRAMADA"):
+        base["evento"] = "ATRACACAO PROGRAMADA"
+    base["fonte"] = " + ".join(fontes)
+    resultado.append(base)
   return resultado
 
 
@@ -126,17 +143,15 @@ def coletar_catalogo_completo() -> tuple[list[Registro], int, int, int]:
   from monitor_aps import coletar_aps
   from monitor_atracacoes import coletar_atracacoes_programadas
   from monitor_atracados import coletar_navios_atracados
+  from monitor_fundeados import coletar_navios_fundeados
 
-  painel = consolidar_coleta(coletar_com_tentativas(coletar_aps))
+  painel = coletar_com_tentativas(coletar_aps)
   validar_coleta(painel, [])
-  programadas = consolidar_coleta(
-      coletar_com_tentativas(coletar_atracacoes_programadas)
-  )
-  atracados = consolidar_coleta(
-      coletar_com_tentativas(coletar_navios_atracados)
-  )
+  programadas = coletar_com_tentativas(coletar_atracacoes_programadas)
+  atracados = coletar_com_tentativas(coletar_navios_atracados)
+  fundeados = coletar_com_tentativas(coletar_navios_fundeados)
   return (
-      mesclar_fontes(painel, programadas, atracados),
+      mesclar_fontes(painel, programadas, atracados, fundeados),
       len(painel),
       len(programadas),
       len(atracados),

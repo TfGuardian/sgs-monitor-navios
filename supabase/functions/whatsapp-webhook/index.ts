@@ -25,6 +25,9 @@ const ATRACADOS_URL = Deno.env.get("ATRACADOS_URL")?.trim() ||
   "https://www.portodesantos.com.br/informacoes-operacionais/operacoes-portuarias/" +
   "navegacao-e-movimento-de-navios/atracados-porto-terminais/";
 
+const FUNDEADOS_URL = Deno.env.get("FUNDEADOS_URL")?.trim() ||
+  "https://www.portodesantos.com.br/informacoes-operacionais/operacoes-portuarias/navegacao-e-movimento-de-navios/navios-fundeados/";
+
 function chaveSupabase(): string {
   const legada = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (legada) return legada;
@@ -81,24 +84,26 @@ function formatarDados(navio: Navio, completo: boolean): string {
   const indisponivel = normalizar(navio.situacao || "indisponivel") === "INDISPONIVEL";
   const antigo = normalizar(navio.situacao) === "DESATUALIZADO" || Boolean(navio.ultima_consulta && Date.now() - new Date(navio.ultima_consulta).getTime() > 7200000);
   const evento = normalizar(navio.evento), fontes = normalizar(navio.fonte).split(" ");
-  const atracado = evento === "ATRACADO" || fontes.includes("ATRACADOS");
+  const conflito = evento === "SITUACAO EM VERIFICACAO";
+  const fundeado = evento === "FUNDEADO";
+  const atracado = !conflito && !fundeado && (evento === "ATRACADO" || fontes.includes("ATRACADOS"));
   const aguardando = !atracado && (["ATRACACAO", "ATRACANDO", "AGUARDANDO ATRACACAO", "ATRACACAO PROGRAMADA", "PROGRAMADO"].includes(evento) || (!evento && fontes.includes("PROGRAMADAS")));
-  const estado = atracado ? "Atracado" : aguardando ? (evento === "ATRACACAO" ? "Atracação" : evento === "ATRACANDO" ? "Atracando" : "Aguardando atracação") : navio.evento || "Situação não informada";
+  const estado = conflito ? "Situação em verificação" : fundeado ? "Fundeado" : atracado ? "Atracado" : aguardando ? (evento === "ATRACACAO" ? "Atracação programada" : evento === "ATRACANDO" ? "Atracando" : "Atracação programada") : navio.evento || "Situação não informada";
   if (indisponivel) blocos.push("⚪ *Dados indisponíveis*", "Não localizado nas fontes consultadas nesta coleta.");
   else {
     if (antigo) blocos.push("⚠️ *Dados desatualizados*", "As informações abaixo correspondem à última consulta disponível.");
-    let status = antigo ? `*Última situação registrada:* ${estado}` : `${atracado ? "🟢" : aguardando ? "🟡" : "⚪"} *${estado}*`;
-    if (navio.local && navio.local !== "N/A") status += `\n📍 *${aguardando ? "Destino" : "Local"}:* ${navio.local}`;
+    let status = antigo ? `*Última situação registrada:* ${estado}` : `${conflito ? "⚠️" : fundeado ? "⚓" : atracado ? "🟢" : aguardando ? "🟡" : "⚪"} *${estado}*`;
+    if (navio.local && navio.local !== "N/A") status += `\n📍 *${aguardando || fundeado ? "Terminal previsto" : "Local"}:* ${navio.local}`;
     blocos.push(status);
     const previsoes = [];
     if (navio.eta && navio.eta !== "N/A") previsoes.push(`*Chegada (ETA):* ${navio.eta}`);
-    if (navio.etb && navio.etb !== "N/A") previsoes.push(`${atracado ? "✅" : "⏳"} *${atracado ? "Atracado" : "Atracação prevista"}:* ${navio.etb}`);
+    if (!atracado && navio.etb && navio.etb !== "N/A") previsoes.push(`${atracado ? "✅" : "⏳"} *${atracado ? "Atracado" : "Atracação prevista"}:* ${navio.etb}`);
     if (previsoes.length) blocos.push((completo ? "*Datas*\n\n" : "") + previsoes.join("\n"));
   }
   const dados = [];
   if (navio.ultima_consulta) dados.push(`🕒 *${completo ? "Última consulta" : "Consulta"}:* ${dataHora(navio.ultima_consulta)}`);
   if (completo && navio.ultima_alteracao) dados.push(`*Última alteração:* ${dataHora(navio.ultima_alteracao)}`);
-  if (completo && navio.fonte) dados.push(`*Fonte:* ${navio.fonte.replaceAll("APS_ATRACACOES_PROGRAMADAS", "Atracações programadas").replaceAll("APS_ATRACADOS", "Navios atracados").replaceAll("APS_PAINEL", "Painel do porto")}`);
+  if (completo && navio.fonte) dados.push(`*Fonte:* ${navio.fonte.replaceAll("APS_ATRACACOES_PROGRAMADAS", "Atracações programadas").replaceAll("APS_FUNDEADOS", "Navios fundeados").replaceAll("APS_ATRACADOS", "Navios atracados").replaceAll("APS_PAINEL", "Painel do porto")}`);
   if (dados.length) blocos.push((completo ? "*Atualização dos dados*\n\n" : "") + dados.join("\n"));
   return blocos.join("\n\n");
 }
@@ -241,7 +246,8 @@ function extrairPaginaAps(
     const iData = indice(["DATA", "DATE", "FECHA"]), iHora = indice(["HORA", "HOUR"]);
     for (const linha of linhas.slice(linhaCabecalho + 1)) {
       const celulas = linha.querySelectorAll("td").map((c) => c.textContent.trim());
-      const nome = celulas[iNavio]?.trim();
+      let nome = celulas[iNavio]?.trim();
+      if (fonte === "APS_FUNDEADOS") nome = nome?.replace(/\s+PROGRAMADO$/i, "").trim();
       if (!nome || normalizar(nome) === cabecalhos[iNavio]) continue;
       const etbProgramado = [iData >= 0 ? celulas[iData] : "", iHora >= 0 ? celulas[iHora] : ""]
         .filter(Boolean).join(" ") || null;
@@ -249,6 +255,8 @@ function extrairPaginaAps(
         eta: iEta >= 0 ? celulas[iEta] || null : null,
         etb: iEtb >= 0 ? celulas[iEtb] || null : etbProgramado,
         local: iLocal >= 0 ? celulas[iLocal] || null : null,
+        viagem: indice(["VIAGEM", "VOYAGE"]) >= 0 ? celulas[indice(["VIAGEM", "VOYAGE"])] || null : null,
+        duv: indice(["DUV"]) >= 0 ? celulas[indice(["DUV"])] || null : null,
         evento: eventoPadrao || (iEvento >= 0 ? celulas[iEvento] || null : null), fonte });
     }
   }
@@ -257,9 +265,7 @@ function extrairPaginaAps(
       tabelas: raiz.querySelectorAll("table").length, registros: resultado.length }));
     throw new Error("A APS nao retornou uma tabela reconhecida");
   }
-  const unicos = new Map<string, Navio>();
-  for (const navio of resultado) unicos.set(normalizar(navio.nome), navio);
-  return [...unicos.values()];
+  return resultado;
 }
 
 function adicionarFonte(atual: string | null | undefined, nova: string): string {
@@ -268,51 +274,55 @@ function adicionarFonte(atual: string | null | undefined, nova: string): string 
   return fontes.join(" + ");
 }
 
-function mesclarFontes(painel: Navio[], programadas: Navio[], atracados: Navio[]): Navio[] {
-  const resultado = programadas.map((navio) => ({ ...navio }));
-  const porImo = new Map(resultado.filter((n) => normalizar(n.imo))
-    .map((n) => [normalizar(n.imo), n]));
-  const porNome = new Map(resultado.map((n) => [normalizar(n.nome), n]));
-  for (const navio of painel) {
-    const encontrado = (normalizar(navio.imo) ? porImo.get(normalizar(navio.imo)) : undefined) ||
-      porNome.get(normalizar(navio.nome));
-    if (!encontrado) {
-      resultado.push({ ...navio, fonte: "APS_PAINEL" });
-      continue;
+function mesclarFontes(painel: Navio[], programadas: Navio[], atracados: Navio[], fundeados: Navio[] = []): Navio[] {
+  const imo = (n: Navio) => String(n.imo || "").replace(/\.0$/, "").replace(/^0+/, "");
+  const mesmo = (a: Navio, b: Navio) => imo(a) && imo(b) ? imo(a) === imo(b) : normalizar(a.nome) === normalizar(b.nome);
+  const grupos: Navio[][] = [];
+  const entradas: [string, Navio[]][] = [["APS_ATRACACOES_PROGRAMADAS", programadas], ["APS_PAINEL", painel], ["APS_ATRACADOS", atracados], ["APS_FUNDEADOS", fundeados]];
+  for (const [fonte, registros] of entradas) for (const original of registros) {
+    const navio = {...original, fonte};
+    const candidatos = grupos.filter(g => g.some(n => mesmo(n, navio) || normalizar(n.nome) === normalizar(navio.nome)));
+    if (!candidatos.length) grupos.push([navio]);
+    else {
+      candidatos[0].push(navio);
+      for (const outro of candidatos.slice(1)) { candidatos[0].push(...outro); grupos.splice(grupos.indexOf(outro), 1); }
     }
-    for (const [campo, valor] of Object.entries(navio)) {
-      if (valor !== null && valor !== "") encontrado[campo] = valor;
-    }
-    encontrado.fonte = "APS_PAINEL + APS_ATRACACOES_PROGRAMADAS";
   }
-  const porNomeAtual = new Map(resultado.map((n) => [normalizar(n.nome), n]));
-  const porImoAtual = new Map(resultado.filter((n) => normalizar(n.imo))
-    .map((n) => [normalizar(n.imo), n]));
-  for (const atracado of atracados) {
-    const encontrado = (normalizar(atracado.imo)
-      ? porImoAtual.get(normalizar(atracado.imo)) : undefined) ||
-      porNomeAtual.get(normalizar(atracado.nome));
-    if (!encontrado) {
-      resultado.push({ ...atracado, evento: "ATRACADO", fonte: "APS_ATRACADOS" });
-      continue;
+  return grupos.map(grupo => {
+    const base: Navio = {...grupo[0]};
+    for (const n of grupo.slice(1)) for (const [c,v] of Object.entries(n)) if (v != null && v !== "") base[c] = v;
+    const fontes = [...new Set(grupo.map(n => String(n.fonte)))];
+    let conflito = grupo.some((a,i) => grupo.slice(i+1).some(b =>
+      ["viagem", "duv"].some(c => a[c] && b[c] && normalizar(a[c]) !== normalizar(b[c])) || (imo(a) && imo(b) && !mesmo(a,b))));
+    for (const fonte of fontes) {
+      const registros = grupo.filter(n => n.fonte === fonte);
+      if (registros.length > 1 && registros.some(n => !n.viagem && !n.duv)) conflito ||= registros.slice(1).some(n => JSON.stringify(n) !== JSON.stringify(registros[0]));
     }
-    if (atracado.nome) encontrado.nome = atracado.nome;
-    if (atracado.local) encontrado.local = atracado.local;
-    encontrado.evento = "ATRACADO";
-    encontrado.fonte = adicionarFonte(encontrado.fonte, "APS_ATRACADOS");
-  }
-  return resultado;
+    const atracado = fontes.includes("APS_ATRACADOS"), fundeado = fontes.includes("APS_FUNDEADOS");
+    if (conflito || (atracado && fundeado)) {
+      base.evento = "SITUACAO_EM_VERIFICACAO"; base.eta = null; base.etb = null; base.local = null;
+    } else {
+      const programacao = grupo.filter(n => n.fonte === "APS_ATRACACOES_PROGRAMADAS");
+      if (programacao.length) { base.eta = programacao.at(-1)?.eta; base.etb = programacao.at(-1)?.etb; }
+      if (atracado) { base.evento = "ATRACADO"; base.etb = null; }
+      else if (fundeado) base.evento = "FUNDEADO";
+      else if (["ATRACACAO", "PROGRAMADO", "ATRACACAO PROGRAMADA"].includes(normalizar(base.evento))) base.evento = "ATRACACAO PROGRAMADA";
+    }
+    base.fonte = fontes.join(" + ");
+    return base;
+  });
 }
 
 async function coletarAps(): Promise<Navio[]> {
-  const [painel, programadas, atracados] = await Promise.all([
+  const [painel, programadas, atracados, fundeados] = await Promise.all([
     coletarPaginaAps(APS_URL, "APS_PAINEL"),
     coletarPaginaAps(
       ATRACACOES_PROGRAMADAS_URL, "APS_ATRACACOES_PROGRAMADAS", true,
     ),
     coletarPaginaAps(ATRACADOS_URL, "APS_ATRACADOS", true, "ATRACADO"),
+    coletarPaginaAps(FUNDEADOS_URL, "APS_FUNDEADOS", true, "FUNDEADO"),
   ]);
-  return mesclarFontes(painel, programadas, atracados);
+  return mesclarFontes(painel, programadas, atracados, fundeados);
 }
 
 function motivoFalhaAdicao(erro: unknown): string {

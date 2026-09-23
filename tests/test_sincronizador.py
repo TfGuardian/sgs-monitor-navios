@@ -160,11 +160,11 @@ class SincronizadorTest(unittest.TestCase):
     self.assertEqual(len(resultado), 1)
     self.assertEqual(resultado[0]["imo"], "1234567")
     self.assertEqual(resultado[0]["eta"], "15/09/2026 08:00")
-    self.assertEqual(resultado[0]["etb"], "15/09/2026 14:00")
+    self.assertEqual(resultado[0]["etb"], "15/09/2026 13:00/19:00")
     self.assertEqual(resultado[0]["local"], "BERCO REAL")
     self.assertEqual(
         resultado[0]["fonte"],
-        "APS_PAINEL + APS_ATRACACOES_PROGRAMADAS",
+        "APS_ATRACACOES_PROGRAMADAS + APS_PAINEL",
     )
 
   def test_navio_exclusivo_da_programacao_tambem_e_retornado(self):
@@ -187,7 +187,7 @@ class SincronizadorTest(unittest.TestCase):
     resultado = mesclar_fontes([], programadas, atracados)
     self.assertEqual(resultado[0]["imo"], "1234567")
     self.assertEqual(resultado[0]["eta"], "15/09/2026 08:00")
-    self.assertEqual(resultado[0]["etb"], "15/09/2026 13:00/19:00")
+    self.assertIsNone(resultado[0]["etb"])
     self.assertEqual(resultado[0]["local"], "TECON 3")
     self.assertEqual(resultado[0]["evento"], "ATRACADO")
     self.assertIn("APS_ATRACADOS", resultado[0]["fonte"])

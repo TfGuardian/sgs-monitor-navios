@@ -40,6 +40,11 @@ ATRACADOS_URL = os.getenv(
     "operacoes-portuarias/navegacao-e-movimento-de-navios/"
     "atracados-porto-terminais/",
 ).strip()
+FUNDEADOS_URL = os.getenv(
+    "FUNDEADOS_URL",
+    "https://www.portodesantos.com.br/informacoes-operacionais/"
+    "operacoes-portuarias/navegacao-e-movimento-de-navios/navios-fundeados/",
+).strip()
 PRATICAGEM_URL = os.getenv("PRATICAGEM_URL", "").strip()
 
 

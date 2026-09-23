@@ -16,7 +16,7 @@ class ResumoTest(unittest.TestCase):
   def test_classificacao_nao_confunde_atracacao_com_atracado(self):
     from consulta_navio import estado_operacional
     self.assertEqual(estado_operacional({"evento":"ATRACADO"}), ("🟢", "Atracado"))
-    self.assertEqual(estado_operacional({"fonte":"APS_ATRACACOES_PROGRAMADAS"}), ("🟡", "Aguardando atracação"))
+    self.assertEqual(estado_operacional({"fonte":"APS_ATRACACOES_PROGRAMADAS"}), ("🟡", "Atracação programada"))
     self.assertEqual(estado_operacional({"fonte":"APS_ATRACACOES_PROGRAMADAS + APS_ATRACADOS"}), ("🟢", "Atracado"))
     self.assertEqual(estado_operacional({"evento":"DESATRACADO"})[0], "⚪")
     self.assertEqual(estado_operacional({"evento":"SAIDA", "fonte":"APS_ATRACACOES_PROGRAMADAS"})[1], "SAIDA")
@@ -33,9 +33,9 @@ class ResumoTest(unittest.TestCase):
       base = {"nome":"A", "situacao":"atualizado", "etb":"24/09/2026 08:00"}
       atracado = formatar(dict(base, evento="ATRACADO"))
       self.assertIn("🟢 *Atracado*", atracado)
-      self.assertIn("✅ *Atracado:* 24/09/2026 08:00", atracado)
+      self.assertNotIn("24/09/2026 08:00", atracado)
       self.assertNotIn("⏳", atracado)
-      for evento, status in (("ATRACAÇÃO", "Atracação"), ("ATRACANDO", "Atracando")):
+      for evento, status in (("ATRACAÇÃO", "Atracação programada"), ("ATRACANDO", "Atracando")):
         previsto = formatar(dict(base, evento=evento))
         self.assertIn(f"🟡 *{status}*", previsto)
         self.assertIn("⏳ *Atracação prevista:*", previsto)

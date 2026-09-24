@@ -93,7 +93,7 @@ function etapaEvento(valor: unknown): [number, string, string] {
 }
 
 function formatarLocal(valor: unknown): string {
-  return String(valor ?? "").trim().replace(/\b(?:ultraf[eé]rtil|tiplan|tiplam)\b/gi, "Tiplam");
+  return String(valor ?? "").trim().replace(/\b(?:ultraf[eé]rtil|ultraf|tiplan|tiplam)\b/gi, "Tiplam");
 }
 
 function formatarDados(navio: Navio, completo: boolean): string {
@@ -269,9 +269,9 @@ function extrairPaginaAps(
       const etbProgramado = [iData >= 0 ? celulas[iData] : "", iHora >= 0 ? celulas[iHora] : ""]
         .filter(Boolean).join(" ") || null;
       resultado.push({ nome, imo: iImo >= 0 ? celulas[iImo] || null : null,
-        eta: iEta >= 0 ? celulas[iEta] || null : null,
-        etb: iEtb >= 0 ? celulas[iEtb] || null : etbProgramado,
-        local: iLocal >= 0 ? celulas[iLocal] || null : null,
+        eta: fonte !== "APS_FUNDEADOS" && iEta >= 0 ? celulas[iEta] || null : null,
+        etb: fonte === "APS_FUNDEADOS" ? null : iEtb >= 0 ? celulas[iEtb] || null : etbProgramado,
+        local: fonte !== "APS_FUNDEADOS" && iLocal >= 0 ? celulas[iLocal] || null : null,
         viagem: indice(["VIAGEM", "VOYAGE"]) >= 0 ? celulas[indice(["VIAGEM", "VOYAGE"])] || null : null,
         duv: indice(["DUV"]) >= 0 ? celulas[indice(["DUV"])] || null : null,
         evento: eventoPadrao || (iEvento >= 0 ? celulas[iEvento] || null : null), fonte });
@@ -298,6 +298,7 @@ function mesclarFontes(painel: Navio[], programadas: Navio[], atracados: Navio[]
   const entradas: [string, Navio[]][] = [["APS_ATRACACOES_PROGRAMADAS", programadas], ["APS_PAINEL", painel], ["APS_ATRACADOS", atracados], ["APS_FUNDEADOS", fundeados]];
   for (const [fonte, registros] of entradas) for (const original of registros) {
     const navio = {...original, fonte};
+    if (fonte === "APS_FUNDEADOS") { delete navio.local; delete navio.eta; delete navio.etb; }
     const candidatos = grupos.filter(g => g.some(n => mesmo(n, navio) || normalizar(n.nome) === normalizar(navio.nome)));
     if (!candidatos.length) grupos.push([navio]);
     else {
@@ -318,7 +319,7 @@ function mesclarFontes(painel: Navio[], programadas: Navio[], atracados: Navio[]
   return grupos.map(grupo => {
     const identificados = grupo.filter(n => n.viagem || n.duv);
     const referencia = identificados.find(n => n.fonte === "APS_FUNDEADOS") || identificados.find(n => n.fonte === "APS_ATRACADOS") || recente(identificados.length ? identificados : grupo);
-    const atuais = grupo.filter(n => !["viagem", "duv"].some(c => n[c] && referencia[c] && normalizar(n[c]) !== normalizar(referencia[c])) && !(imo(n) && imo(referencia) && !mesmo(n,referencia)));
+    const atuais = grupo.filter(n => !["viagem", "duv"].some(c => n[c] && referencia[c] && normalizar(n[c]).replace(/[^A-Z0-9]/g, "") !== normalizar(referencia[c]).replace(/[^A-Z0-9]/g, "")) && !(imo(n) && imo(referencia) && !mesmo(n,referencia)));
     const programacao = atuais.filter(n => n.fonte === "APS_ATRACACOES_PROGRAMADAS");
     const painelAtual = atuais.filter(n => n.fonte === "APS_PAINEL");
     const base: Navio = {...recente(programacao.length ? programacao : painelAtual.length ? painelAtual : atuais)};
@@ -328,9 +329,10 @@ function mesclarFontes(painel: Navio[], programadas: Navio[], atracados: Navio[]
       return {rank: etapaEvento(evento)[0], n, evento};
     });
     const escolhido = candidatos.reduce((a,b) => b.rank > a.rank ? b : a);
-    if (escolhido.rank > 0) { base.evento = escolhido.evento; base.local = escolhido.n.local; }
+    if (escolhido.rank > 0) { base.evento = escolhido.evento; if (escolhido.n.fonte !== "APS_FUNDEADOS" && escolhido.n.local) base.local = escolhido.n.local; }
     else if (["ATRACACAO", "PROGRAMADO", "ATRACACAO PROGRAMADA"].includes(normalizar(base.evento))) base.evento = "ATRACACAO PROGRAMADA";
     if (programacao.length) { base.eta = recente(programacao).eta; base.etb = recente(programacao).etb; }
+    if (escolhido.rank < 3 && programacao.length) base.local = recente(programacao).local || base.local;
     if (escolhido.rank >= 3) base.etb = null;
     base.fonte = [...new Set(atuais.map(n => n.fonte))].join(" + ");
     return base;

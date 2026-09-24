@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from time import sleep
@@ -78,8 +79,12 @@ def _mesmo_navio(a, b):
   return normalizar(a.get("nome")) == normalizar(b.get("nome"))
 
 
+def _identificador_escala(valor):
+  return re.sub(r"[^A-Z0-9]", "", normalizar(valor))
+
+
 def _escala_conflitante(a, b):
-  return any(a.get(c) and b.get(c) and normalizar(a[c]) != normalizar(b[c])
+  return any(a.get(c) and b.get(c) and _identificador_escala(a[c]) != _identificador_escala(b[c])
              for c in ("viagem", "duv"))
 
 
@@ -91,6 +96,9 @@ def mesclar_fontes(painel, programadas, atracados=None, fundeados=None):
                            ("APS_FUNDEADOS", fundeados or [])):
     for original in registros:
       navio = dict(original, fonte=fonte)
+      if fonte == "APS_FUNDEADOS":
+        for campo in ("local", "eta", "etb"):
+          navio.pop(campo, None)
       candidatos = [g for g in grupos if any(_mesmo_navio(n, navio) or normalizar(n.get("nome")) == normalizar(navio.get("nome")) for n in g)]
       if candidatos:
         grupo = candidatos[0]
@@ -127,12 +135,15 @@ def mesclar_fontes(painel, programadas, atracados=None, fundeados=None):
     rank, escolhido, evento = max(candidatos, key=lambda item: item[0])
     if rank > 0:
       base["evento"] = evento
-      base["local"] = escolhido.get("local")
+      if escolhido["fonte"] != "APS_FUNDEADOS" and escolhido.get("local"):
+        base["local"] = escolhido["local"]
     elif normalizar(base.get("evento")) in ("ATRACACAO", "PROGRAMADO", "ATRACACAO PROGRAMADA"):
       base["evento"] = "ATRACACAO PROGRAMADA"
     if programacao:
       for c in ("eta", "etb"):
         base[c] = max(programacao, key=_data_operacao).get(c)
+    if rank < 3 and programacao:
+      base["local"] = max(programacao, key=_data_operacao).get("local") or base.get("local")
     if rank >= 3:
       base["etb"] = None
     base["fonte"] = " + ".join(dict.fromkeys(n["fonte"] for n in atuais))

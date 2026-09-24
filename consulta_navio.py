@@ -155,7 +155,7 @@ def estado_operacional(navio: Registro) -> tuple[str, str]:
 
 def formatar_local(valor: Any) -> str:
   texto = str(valor or "").strip()
-  return re.sub(r"\b(?:ultraf[eé]rtil|tiplan|tiplam)\b", "Tiplam", texto, flags=re.IGNORECASE)
+  return re.sub(r"\b(?:ultraf[eé]rtil|ultraf|tiplan|tiplam)\b", "Tiplam", texto, flags=re.IGNORECASE)
 
 
 def _formatar(navio: Registro, agora: datetime | None, completo: bool) -> str:

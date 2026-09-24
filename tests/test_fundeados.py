@@ -17,7 +17,7 @@ class FundeadosTest(unittest.TestCase):
     self.assertEqual(extrair_navios_fundeados([tabela.iloc[0:0]]),([],True))
 
   def test_fundeado_com_programacao(self):
-    r=mesclar_fontes([], [{'nome':'A','etb':'amanhã','evento':'ATRACACAO','viagem':'1'}], [], [{'nome':'A','viagem':'1','local':'T'}])[0]
+    r=mesclar_fontes([], [{'nome':'A','etb':'amanhã','evento':'ATRACACAO','viagem':'1','local':'PROGRAMADO'}], [], [{'nome':'A','viagem':'1','local':'T'}])[0]
     self.assertEqual(r['evento'],'FUNDEADO')
     self.assertEqual(r['etb'],'amanhã')
     texto=formatar_resumo(dict(r,situacao='atualizado'))
@@ -54,3 +54,13 @@ class FundeadosTest(unittest.TestCase):
   def test_falha_fundeados_aborta_catalogo(self):
     with patch('monitor_aps.coletar_aps', return_value=[{'nome':str(i)} for i in range(60)]), patch('monitor_atracacoes.coletar_atracacoes_programadas',return_value=[]), patch('monitor_atracados.coletar_navios_atracados',return_value=[]), patch('monitor_fundeados.coletar_navios_fundeados',side_effect=RuntimeError('falha')), patch('sincronizador.sleep'):
       with self.assertRaises(RuntimeError): coletar_catalogo_completo()
+
+  def test_star_helena_programacao_preservada(self):
+    programada={'nome':'STAR HELENA','viagem':'3942/2026','duv':'400162026','etb':'25/09/2026 07:00/13:00','local':'BARRA/12A/13/14','evento':'ATRACACAO'}
+    fundeado={'nome':'STAR HELENA','viagem':'3942-- 2026','local':'ERRADO','etb':'ERRADO','eta':'ERRADO'}
+    r=mesclar_fontes([], [programada], [], [fundeado])[0]
+    self.assertEqual(r['evento'],'FUNDEADO')
+    self.assertEqual(r['etb'],'25/09/2026 07:00/13:00')
+    self.assertEqual(r['local'],'BARRA/12A/13/14')
+    r=mesclar_fontes([],[],[],[fundeado])[0]
+    for campo in ('local','eta','etb'): self.assertFalse(r.get(campo))

@@ -25,7 +25,7 @@ def extrair_navios_fundeados(tabelas):
       # PROGRAMADO é uma anotação da página, não parte do nome do navio.
       n = re.sub(r"\s+PROGRAMADO$", "", n, flags=re.I).strip()
       registros.append(dict(nome=n, evento="FUNDEADO", fonte="APS_FUNDEADOS",
-        local=_valor(row, terminal), **{c: _valor(row, col) for c, col in campos.items()}))
+        **{c: _valor(row, col) for c, col in campos.items()}))
   return registros, reconhecida
 
 

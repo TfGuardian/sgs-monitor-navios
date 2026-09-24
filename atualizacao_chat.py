@@ -100,7 +100,7 @@ def preparar_resultado(cliente, coletar, candidatos=None):
   if candidatos is not None:
     candidatos.extend(candidatos_indisponiveis(navios))
   cabecalho = f"✅ *Atualização concluída*\n\n🕒 *Concluída em:* {momento}\nHorário de Brasília."
-  texto = "\n\n".join(formatar_resumo(n) for n in navios)
+  texto = "\n\n───────────────\n\n".join(formatar_resumo(n) for n in navios)
   return dividir(cabecalho + "\n\n" + (texto or "A lista de monitoramento está *vazia*.")), "sucesso"
 
 

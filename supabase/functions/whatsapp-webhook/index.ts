@@ -291,6 +291,15 @@ function adicionarFonte(atual: string | null | undefined, nova: string): string 
   return fontes.join(" + ");
 }
 
+function identificadorEscala(valor: unknown, campo: string): string {
+  const texto = String(valor ?? "").trim().replace(/\s+/g, " ").toUpperCase();
+  if (campo === "viagem") {
+    const partes = texto.match(/^(\d+)(?:-\d+|--)?[ /]+(\d{4})$/);
+    if (partes) return `${Number(partes[1])}/${partes[2]}`;
+  }
+  return normalizar(texto).replace(/[^A-Z0-9]/g, "");
+}
+
 function mesclarFontes(painel: Navio[], programadas: Navio[], atracados: Navio[], fundeados: Navio[] = []): Navio[] {
   const imo = (n: Navio) => String(n.imo || "").replace(/\.0$/, "").replace(/^0+/, "");
   const mesmo = (a: Navio, b: Navio) => imo(a) && imo(b) ? imo(a) === imo(b) : normalizar(a.nome) === normalizar(b.nome);
@@ -319,7 +328,7 @@ function mesclarFontes(painel: Navio[], programadas: Navio[], atracados: Navio[]
   return grupos.map(grupo => {
     const identificados = grupo.filter(n => n.viagem || n.duv);
     const referencia = identificados.find(n => n.fonte === "APS_FUNDEADOS") || identificados.find(n => n.fonte === "APS_ATRACADOS") || recente(identificados.length ? identificados : grupo);
-    const atuais = grupo.filter(n => !["viagem", "duv"].some(c => n[c] && referencia[c] && normalizar(n[c]).replace(/[^A-Z0-9]/g, "") !== normalizar(referencia[c]).replace(/[^A-Z0-9]/g, "")) && !(imo(n) && imo(referencia) && !mesmo(n,referencia)));
+    const atuais = grupo.filter(n => !["viagem", "duv"].some(c => n[c] && referencia[c] && identificadorEscala(n[c], c) !== identificadorEscala(referencia[c], c)) && !(imo(n) && imo(referencia) && !mesmo(n,referencia)));
     const programacao = atuais.filter(n => n.fonte === "APS_ATRACACOES_PROGRAMADAS");
     const painelAtual = atuais.filter(n => n.fonte === "APS_PAINEL");
     const base: Navio = {...recente(programacao.length ? programacao : painelAtual.length ? painelAtual : atuais)};

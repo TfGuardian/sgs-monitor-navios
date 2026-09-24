@@ -79,12 +79,18 @@ def _mesmo_navio(a, b):
   return normalizar(a.get("nome")) == normalizar(b.get("nome"))
 
 
-def _identificador_escala(valor):
-  return re.sub(r"[^A-Z0-9]", "", normalizar(valor))
+def _identificador_escala(valor, campo="viagem"):
+  texto = normalizar(valor)
+  if campo == "viagem":
+    # APS: número/ano na programação e número-sufixo ano na posição.
+    partes = re.fullmatch(r"(\d+)(?:-\d+|--)?[ /]+(\d{4})", texto)
+    if partes:
+      return f"{int(partes[1])}/{partes[2]}"
+  return re.sub(r"[^A-Z0-9]", "", texto)
 
 
 def _escala_conflitante(a, b):
-  return any(a.get(c) and b.get(c) and _identificador_escala(a[c]) != _identificador_escala(b[c])
+  return any(a.get(c) and b.get(c) and _identificador_escala(a[c], c) != _identificador_escala(b[c], c)
              for c in ("viagem", "duv"))
 
 
@@ -147,6 +153,7 @@ def mesclar_fontes(painel, programadas, atracados=None, fundeados=None):
     if rank >= 3:
       base["etb"] = None
     base["fonte"] = " + ".join(dict.fromkeys(n["fonte"] for n in atuais))
+    base["_catalogo_completo"] = True
     resultado.append(base)
   return resultado
 
@@ -207,8 +214,12 @@ def planejar_sincronizacao(
     # ja possui esses valores, a ausencia na fonte nao deve apaga-los.
     dados = {campo: coletado.get(campo) for campo in CAMPOS_DADOS
              if coletado.get(campo) not in (None, "")}
+    if coletado.get("_catalogo_completo"):
+      # Uma coleta completa sem esses dados não confirma os valores antigos.
+      for campo in ("eta", "etb", "local"):
+        dados[campo] = coletado.get(campo) or None
     for campo in ("eta", "etb"):
-      if campo in dados:
+      if dados.get(campo):
         dados[campo] = formatar_data_operacional(dados[campo])
     dados.update({
         "ultima_consulta": momento,

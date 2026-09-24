@@ -64,3 +64,22 @@ class FundeadosTest(unittest.TestCase):
     self.assertEqual(r['local'],'BARRA/12A/13/14')
     r=mesclar_fontes([],[],[],[fundeado])[0]
     for campo in ('local','eta','etb'): self.assertFalse(r.get(campo))
+
+  def test_union_voyager_e_limpeza_de_dados_antigos(self):
+    from sincronizador import planejar_sincronizacao, _escala_conflitante
+    from datetime import datetime, timezone
+    p={'nome':'UNION VOYAGER','viagem':'4166/2026','imo':'9628946','local':'TIPLAN 2/3','etb':'25/09/2026 07:00/13:00'}
+    f={'nome':'UNION VOYAGER','viagem':'4166-4 2026'}
+    antigo={'id':530,'nome':'UNION VOYAGER','local':'TGG','etb':'24/09/2026 01:00/07:00','evento':'FUNDEADO'}
+    r=mesclar_fontes([],[p],[],[f])[0]
+    plano=planejar_sincronizacao([r],[antigo],datetime.now(timezone.utc))
+    self.assertEqual(plano.atualizar[0].dados['local'],'TIPLAN 2/3')
+    self.assertEqual(plano.atualizar[0].dados['etb'],p['etb'])
+    self.assertIn('Tiplam 2/3',formatar_resumo(dict(r,situacao='atualizado')))
+    r=mesclar_fontes([],[],[],[f])[0]
+    plano=planejar_sincronizacao([r],[antigo],datetime.now(timezone.utc))
+    for c in ('local','eta','etb'): self.assertIsNone(plano.atualizar[0].dados[c])
+    self.assertTrue(plano.atualizar[0].alteracao_dados)
+    self.assertTrue(_escala_conflitante(p,{'viagem':'4167-4 2026'}))
+    self.assertTrue(_escala_conflitante(p,{'viagem':'4166-4 2025'}))
+    self.assertTrue(_escala_conflitante({'duv':'123-4'},{'duv':'123-5'}))

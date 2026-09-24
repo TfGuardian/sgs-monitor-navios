@@ -153,6 +153,11 @@ def estado_operacional(navio: Registro) -> tuple[str, str]:
   return emoji, estado
 
 
+def formatar_local(valor: Any) -> str:
+  texto = str(valor or "").strip()
+  return re.sub(r"\b(?:ultraf[eé]rtil|tiplan|tiplam)\b", "Tiplam", texto, flags=re.IGNORECASE)
+
+
 def _formatar(navio: Registro, agora: datetime | None, completo: bool) -> str:
   blocos = (["🔎 *Detalhes do navio*"] if completo else [])
   identidade = f"🚢 *{_exibir(navio.get('nome'))}*"
@@ -169,7 +174,7 @@ def _formatar(navio: Registro, agora: datetime | None, completo: bool) -> str:
       blocos.extend(["⚠️ *Dados desatualizados*", "As informações abaixo correspondem à última consulta disponível."])
     status = f"*Última situação registrada:* {estado}" if antigo else f"{emoji} *{estado}*"
     if navio.get("local") and navio["local"] != "N/A":
-      status += f"\n📍 *{'Terminal previsto' if emoji in ('🟡', '⚓') else 'Local'}:* {navio['local']}"
+      status += f"\n📍 *{'Terminal previsto' if emoji in ('🟡', '⚓') else 'Local'}:* {formatar_local(navio['local'])}"
     blocos.append(status)
     previsoes = []
     for campo, rotulo in (("eta", "Chegada (ETA)"), ("etb", "Atracado" if emoji == "🟢" else "Atracação prevista")):

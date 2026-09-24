@@ -92,6 +92,10 @@ function etapaEvento(valor: unknown): [number, string, string] {
   return [0, "⚪", String(valor || "Situação não informada")];
 }
 
+function formatarLocal(valor: unknown): string {
+  return String(valor ?? "").trim().replace(/\b(?:ultraf[eé]rtil|tiplan|tiplam)\b/gi, "Tiplam");
+}
+
 function formatarDados(navio: Navio, completo: boolean): string {
   const blocos = completo ? ["🔎 *Detalhes do navio*"] : [];
   blocos.push(`🚢 *${navio.nome || "N/A"}*` + (completo && navio.imo ? `\n*IMO:* ${navio.imo}` : ""));
@@ -106,7 +110,7 @@ function formatarDados(navio: Navio, completo: boolean): string {
   else {
     if (antigo) blocos.push("⚠️ *Dados desatualizados*", "As informações abaixo correspondem à última consulta disponível.");
     let status = antigo ? `*Última situação registrada:* ${estado}` : `${emoji} *${estado}*`;
-    if (navio.local && navio.local !== "N/A") status += `\n📍 *${rank < 3 ? "Terminal previsto" : "Local"}:* ${navio.local}`;
+    if (navio.local && navio.local !== "N/A") status += `\n📍 *${rank < 3 ? "Terminal previsto" : "Local"}:* ${formatarLocal(navio.local)}`;
     blocos.push(status);
     const previsoes = [];
     if (navio.eta && navio.eta !== "N/A") previsoes.push(`*Chegada (ETA):* ${navio.eta}`);

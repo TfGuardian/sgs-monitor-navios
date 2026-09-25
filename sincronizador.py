@@ -335,9 +335,7 @@ def _registrar_coleta(cliente, dados: Registro) -> None:
 def sincronizar(dry_run: bool = False) -> PlanoSincronizacao:
   from config import criar_supabase
   from lista_monitoramento import (
-      carregar_destinatarios,
       carregar_lista,
-      montar_visao_monitorados,
   )
   cliente = criar_supabase(administrativo=True)
   inicio = datetime.now(timezone.utc)
@@ -419,20 +417,8 @@ def sincronizar(dry_run: bool = False) -> PlanoSincronizacao:
           "navios_indisponiveis": max(0, len(lista) - len(coletados)),
       })
 
-      import os
-      if os.getenv("RELATORIO_WHATSAPP_ATIVO", "").strip().lower() in (
-          "1", "true", "sim", "yes",
-      ):
-        from relatorio import montar_relatorio
-        from whatsapp import enviar_relatorio_whatsapp
-        try:
-          paginas = montar_relatorio(montar_visao_monitorados(cliente), limite=900)
-          for destinatario in carregar_destinatarios(cliente):
-            for pagina in paginas:
-              enviar_relatorio_whatsapp(destinatario, pagina)
-        except Exception as exc:
-          # Uma falha da Meta nao invalida os dados que ja foram coletados.
-          print(f"Aviso: coleta salva, mas o relatorio nao foi enviado: {exc}")
+      # Envio horario executado por relatorio_horario.py, com snapshot e fila.
+      # Uma falha na entrega nao altera o resultado da coleta salva.
 
     prefixo = "[SIMULACAO] " if dry_run else ""
     print(

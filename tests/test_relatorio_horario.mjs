@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {createRequire} from 'node:module';
+const require=createRequire(import.meta.url);
+const {PGlite}=require('../tmp/webhook-validation/node_modules/@electric-sql/pglite');
+const db=new PGlite();
+await db.exec(`create role anon; create role authenticated; create role service_role;
+create table destinatarios_relatorio(telefone text primary key,ativo boolean);
+insert into destinatarios_relatorio values('5513111111111',true),('5513222222222',true);`);
+await db.exec(readFileSync('supabase/migrations/20260925160000_relatorios_horarios.sql','utf8'));
+const lote=(await db.query('select * from reservar_relatorio_horario()')).rows[0];
+assert.equal((await db.query('select * from reservar_relatorio_horario()')).rows.length,0);
+const args=[lote.id,lote.reserva_token];
+await db.query('select preparar_relatorio_horario($1,$2,$3)', [...args,JSON.stringify([['um'],['dois']])]);
+await db.query('select preparar_relatorio_horario($1,$2,$3)', [...args,JSON.stringify([['outro']])]);
+let itens=(await db.query('select * from listar_entregas_horarias($1,$2)',args)).rows;
+assert.equal(itens.length,4);
+const entrega=itens[0].id;
+assert.equal((await db.query('select iniciar_entrega_horaria($1,$2,$3) as ok',[...args,entrega])).rows[0].ok,true);
+assert.equal((await db.query('select iniciar_entrega_horaria($1,$2,$3) as ok',[...args,entrega])).rows[0].ok,false);
+await db.query("select registrar_status_horario($1,'wamid.1','delivered')",[entrega]);
+await db.query("select finalizar_entrega_horaria($1,$2,$3,'aceito','wamid.1')",[...args,entrega]);
+await db.query("select registrar_status_horario($1,'wamid.1','sent')",[entrega]);
+assert.equal((await db.query('select estado from entregas_horarias where id=$1',[entrega])).rows[0].estado,'delivered');
+assert.equal((await db.query('select * from listar_entregas_horarias($1,$2)',args)).rows.length,3);
+await db.exec("update destinatarios_relatorio set ativo=false where telefone='5513222222222'");
+for (const item of itens.slice(2)) {
+  assert.equal((await db.query('select iniciar_entrega_horaria($1,$2,$3) as ok',[...args,item.id])).rows[0].ok,false);
+}
+const segundo=itens[1].id;
+await db.query('select iniciar_entrega_horaria($1,$2,$3)',[...args,segundo]);
+await db.query("select finalizar_entrega_horaria($1,$2,$3,'falha',null)",[...args,segundo]);
+assert.equal((await db.query('select * from listar_entregas_horarias($1,$2)',args)).rows.length,0);
+await db.query("update entregas_horarias set atualizado_em=now()-interval '6 minutes' where id=$1",[segundo]);
+assert.equal((await db.query('select * from listar_entregas_horarias($1,$2)',args)).rows.length,1);
+await db.query('select iniciar_entrega_horaria($1,$2,$3)',[...args,segundo]);
+await db.query("select finalizar_entrega_horaria($1,$2,$3,'aceito','wamid.2')",[...args,segundo]);
+assert.equal((await db.query('select concluir_relatorio_horario($1,$2) as n',args)).rows[0].n,0);
+await db.query('select liberar_relatorio_horario($1,$2)',args);
+assert.equal((await db.query('select * from reservar_relatorio_horario()')).rows.length,0);
+await assert.rejects(db.query('select validar_reserva_horaria($1,$2)',args));
+await db.exec('set role anon');
+await assert.rejects(db.query('select * from reservar_relatorio_horario()'));
+await assert.rejects(db.query('select * from entregas_horarias'));
+await db.exec('reset role');
+// Agendador com stubs de rede: nenhum disparo externo nos testes.
+await db.exec(`create schema vault; create schema net; create schema cron;
+create table vault.decrypted_secrets(name text,decrypted_secret text);
+insert into vault.decrypted_secrets values('sgs_github_actions_token','TOKEN-FICTICIO');
+create function net.http_post(url text,headers jsonb,body jsonb,timeout_milliseconds integer)
+returns bigint language sql as 'select 1::bigint';
+create function cron.schedule(text,text,text) returns bigint language sql as 'select 1::bigint';`);
+const agendamento=readFileSync('supabase/ativar_agendamento_horario.sql','utf8')
+  .replace(/^create extension[^;]+;$/gm,'');
+await db.exec(agendamento);
+await db.exec('select disparar_relatorio_horario()');
+assert.equal((await db.query('select count(*)::int as n from disparos_relatorio_horario')).rows[0].n,0);
+await db.exec("update relatorios_horarios set hora=hora-interval '1 hour'");
+await db.exec('select disparar_relatorio_horario(); select disparar_relatorio_horario();');
+assert.equal((await db.query('select count(*)::int as n from disparos_relatorio_horario')).rows[0].n,1);
+console.log('OK: reserva, snapshot, retomada, assinatura, status fora de ordem, permissões.');
+await db.close();

@@ -89,43 +89,37 @@ def enviar_texto_whatsapp(destinatario: str, texto: str) -> bool:
 
 
 def enviar_relatorio_whatsapp(destinatario: str, texto: str) -> bool:
-  """Envia o relatorio por modelo aprovado, inclusive fora da janela de 24h."""
-  token, phone_number_id, template = _obrigatorias(
+  """Impede uso acidental do modelo antigo, que truncava o relatorio."""
+  raise RuntimeError("Use relatorio_horario.py com o modelo de 12 parametros")
+
+
+def enviar_modelo_relatorio(destinatario: str, parametros: list[str], entrega_id: str) -> str:
+  """Modelo de 12 parametros; retorna o ID de aceite, nao uma entrega confirmada."""
+  token, phone_id, modelo = _obrigatorias(
       ("META_ACCESS_TOKEN", "META_PHONE_NUMBER_ID", "META_REPORT_TEMPLATE_NAME"),
-      "relatorio Meta WhatsApp",
-  )
-  versao = os.getenv("META_GRAPH_API_VERSION", "").strip() or "v26.0"
-  idioma = os.getenv("META_REPORT_TEMPLATE_LANGUAGE", "").strip() or "pt_BR"
+      "relatorio horario")
+  if len(parametros) != 12 or any(not isinstance(p, str) or not p or
+                                  any(c in p for c in "\n\r\t") for p in parametros):
+    raise ValueError("Parametros invalidos para o modelo horario")
   numero = "".join(c for c in destinatario if c.isdigit())
-  if not numero:
-    raise ValueError("Destinatario do WhatsApp invalido")
-  response = requests.post(
-      f"https://graph.facebook.com/{versao}/{phone_number_id}/messages",
-      headers={
-          "Authorization": f"Bearer {token}",
-          "Content-Type": "application/json",
-      },
-      json={
-          "messaging_product": "whatsapp",
-          "recipient_type": "individual",
-          "to": numero,
-          "type": "template",
-          "template": {
-              "name": template,
-              "language": {"code": idioma},
-              "components": [{
-                  "type": "body",
-                  "parameters": [{"type": "text", "text": texto[:950]}],
-              }],
-          },
-      },
-      timeout=TIMEOUT,
-  )
-  dados = _resposta_meta(response, "enviar o relatorio horario")
+  if not 10 <= len(numero) <= 15:
+    raise ValueError("Destinatario invalido")
+  versao = os.getenv("META_GRAPH_API_VERSION", "").strip() or "v26.0"
+  resposta = requests.post(
+      f"https://graph.facebook.com/{versao}/{phone_id}/messages",
+      headers={"Authorization": f"Bearer {token}"}, timeout=TIMEOUT,
+      json={"messaging_product": "whatsapp", "to": numero,
+            "biz_opaque_callback_data": "relatorio_horario:" + entrega_id,
+            "type": "template", "template": {
+                "name": modelo,
+                "language": {"code": os.getenv("META_REPORT_TEMPLATE_LANGUAGE") or "pt_BR"},
+                "components": [{"type": "body", "parameters": [
+                    {"type": "text", "text": p} for p in parametros]}]}})
+  dados = _resposta_meta(resposta, "enviar relatorio horario")
   mensagens = dados.get("messages") or []
   if not mensagens or not mensagens[0].get("id"):
-    raise RuntimeError(f"Meta nao confirmou o envio do relatorio: {dados}")
-  return True
+    raise RuntimeError("Meta nao retornou identificador da mensagem")
+  return mensagens[0]["id"]
 
 
 def _parametro_template(valor: Any) -> dict[str, str]:

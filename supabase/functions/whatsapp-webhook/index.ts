@@ -684,6 +684,16 @@ Deno.serve(async (request) => {
         const value = change.value as Registro | undefined;
         for (const status of (Array.isArray(value?.statuses) ? value.statuses : []) as Registro[]) {
           totalStatus += 1;
+          const referencia = String(status.biz_opaque_callback_data ?? "");
+          const entrega = referencia.match(/^relatorio_horario:([0-9a-f-]{36})$/i)?.[1];
+          if (entrega && typeof status.id === "string" && typeof status.status === "string") {
+            const erros = Array.isArray(status.errors) ? status.errors as Registro[] : [];
+            const { error } = await supabase.rpc("registrar_status_horario", {
+              entrega, mensagem: status.id, situacao: status.status,
+              codigo: typeof erros[0]?.code === "number" ? erros[0].code : null,
+            });
+            if (error) throw new Error("Falha ao registrar status do relatorio horario");
+          }
           console.info(JSON.stringify({ evento: "status_entrega", status: status.status,
             codigos_erro: (Array.isArray(status.errors) ? status.errors : [])
               .map((erro: Registro) => erro.code) }));

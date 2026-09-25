@@ -47,4 +47,9 @@ jobs:
           META_REPORT_TEMPLATE_NAME: ${{ vars.META_REPORT_TEMPLATE_NAME }}
           META_REPORT_TEMPLATE_LANGUAGE: ${{ vars.META_REPORT_TEMPLATE_LANGUAGE }}
           RELATORIO_WHATSAPP_ATIVO: ${{ vars.RELATORIO_WHATSAPP_ATIVO }}
-        run: python main.py --sincronizar
+        run: |
+          if [ "$RELATORIO_WHATSAPP_ATIVO" = "true" ]; then
+            python relatorio_horario.py
+          else
+            python main.py --sincronizar
+          fi

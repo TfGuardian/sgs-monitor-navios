@@ -115,6 +115,7 @@ function formatarDados(navio: Navio, completo: boolean): string {
     const previsoes = [];
     if (navio.eta && navio.eta !== "N/A") previsoes.push(`*Chegada (ETA):* ${navio.eta}`);
     if (rank < 3 && navio.etb && navio.etb !== "N/A") previsoes.push(`⏳ *Atracação prevista:* ${navio.etb}`);
+    else if (estado === "Fundeado") previsoes.push("⏳ *Atracação prevista:* N/A");
     if (previsoes.length) blocos.push((completo ? "*Datas*\n\n" : "") + previsoes.join("\n"));
   }
   const dados = [];
@@ -306,6 +307,13 @@ function mesclarFontes(painel: Navio[], programadas: Navio[], atracados: Navio[]
   const grupos: Navio[][] = [];
   const entradas: [string, Navio[]][] = [["APS_ATRACACOES_PROGRAMADAS", programadas], ["APS_PAINEL", painel], ["APS_ATRACADOS", atracados], ["APS_FUNDEADOS", fundeados]];
   for (const [fonte, registros] of entradas) for (const original of registros) {
+    if (fonte === "APS_PAINEL") {
+      const valor = String(original.etb || original.eta || "");
+      const partes = valor.match(/^(\d{2})\/(\d{2})\/(\d{2}|\d{4}) (\d{2}):(\d{2})/);
+      const ano = partes ? Number(partes[3]) < 100 ? 2000 + Number(partes[3]) : Number(partes[3]) : 0;
+      const data = partes ? Date.UTC(ano, Number(partes[2])-1, Number(partes[1]), Number(partes[4]), Number(partes[5])) : Date.parse(valor);
+      if (Number.isFinite(data) && data > 0 && data < Date.now() - 180 * 86400000) continue;
+    }
     const navio = {...original, fonte};
     if (fonte === "APS_FUNDEADOS") { delete navio.local; delete navio.eta; delete navio.etb; }
     const candidatos = grupos.filter(g => g.some(n => mesmo(n, navio) || normalizar(n.nome) === normalizar(navio.nome)));

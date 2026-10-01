@@ -24,6 +24,33 @@ class FundeadosTest(unittest.TestCase):
     self.assertIn('⚓ *Fundeado*',texto)
     self.assertIn('Terminal previsto',texto)
 
+  def test_fundeado_sem_etb_mostra_na(self):
+    registro=mesclar_fontes([],[],[],[{'nome':'ROSTRUM HEDONIST','viagem':'4524-8 2026'}])[0]
+    self.assertIn('⏳ *Atracação prevista:* N/A',formatar_resumo(dict(registro,situacao='atualizado')))
+
+  def test_painel_com_escala_de_2024_nao_e_status_atual(self):
+    antigo={'nome':'WHISTLER','viagem':'0484/2024','etb':'15/02/24 20:50:00',
+            'local':'ARMAZEM 29','evento':'NAO REQ TRABALHO'}
+    self.assertEqual(mesclar_fontes([antigo],[],[],[]),[])
+    atual={'id':30,'nome':'WHISTLER','etb':'15/02/2024 20:50','evento':'NAO REQ TRABALHO',
+           'local':'ARMAZEM 29','ausencias_consecutivas':0}
+    from sincronizador import planejar_sincronizacao
+    from datetime import datetime, timezone
+    plano=planejar_sincronizacao([], [atual], datetime.now(timezone.utc))
+    visao=dict(atual,**plano.atualizar[0].dados)
+    resumo=formatar_resumo(visao)
+    self.assertIn('Dados indisponíveis',resumo)
+    self.assertNotIn('NAO REQ TRABALHO',resumo)
+    self.assertNotIn('15/02/2024',resumo)
+
+  def test_painel_recente_ou_fundeio_confirmado_continua(self):
+    from datetime import datetime
+    recente=datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    painel={'nome':'A','etb':recente,'evento':'OPERANDO'}
+    self.assertEqual(mesclar_fontes([painel],[],[],[])[0]['evento'],'OPERANDO')
+    antigo={'nome':'B','etb':'15/02/24 20:50:00','evento':'NAO REQ TRABALHO'}
+    self.assertEqual(mesclar_fontes([antigo],[],[],[{'nome':'B'}])[0]['evento'],'FUNDEADO')
+
   def test_etapa_posterior_prevalece_sobre_fundeio(self):
     for evento in ('ATRACANDO','ATRACADO','OPERANDO','OPERANDO/BOMBEANDO','AG/DESATRACACAO','DESATRACANDO','SAIDA CONFIRMADA'):
       with self.subTest(evento=evento):

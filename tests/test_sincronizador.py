@@ -66,7 +66,7 @@ class SincronizadorTest(unittest.TestCase):
     self.assertNotIn("imo", dados)
     self.assertNotIn("eta", dados)
 
-  def test_primeira_ausencia_marca_desatualizado(self):
+  def test_primeira_ausencia_marca_indisponivel_sem_exibir_dados_antigos(self):
     existentes = [{
         "id": 1, "nome": "AUSENTE", "imo": "111", "ausencias_consecutivas": 0,
     }]
@@ -74,7 +74,8 @@ class SincronizadorTest(unittest.TestCase):
     plano = planejar_sincronizacao(coletados, existentes, self.agora)
     ausencia = next(a for a in plano.atualizar if a.anterior["nome"] == "AUSENTE")
     self.assertEqual(ausencia.dados["ausencias_consecutivas"], 1)
-    self.assertEqual(ausencia.dados["situacao"], "desatualizado")
+    self.assertEqual(ausencia.dados["situacao"], "indisponivel")
+    self.assertIn("ultima_consulta", ausencia.dados)
     self.assertFalse(plano.remover)
 
   def test_segunda_ausencia_remove(self):

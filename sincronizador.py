@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from time import sleep
 from typing import Any, Callable, cast
 
@@ -59,6 +59,13 @@ def _data_operacao(navio: Registro) -> datetime:
   return datetime.min
 
 
+def _painel_historico(navio: Registro, agora: datetime | None = None) -> bool:
+  """O painel da APS inclui escalas arquivadas junto das atuais."""
+  data = _data_operacao(navio)
+  referencia = (agora or datetime.now(timezone.utc)).replace(tzinfo=None)
+  return data != datetime.min and data < referencia - timedelta(days=180)
+
+
 def consolidar_coleta(registros: list[Registro]) -> list[Registro]:
   """Mantem uma ocorrencia por IMO ou nome, priorizando a operacao recente."""
   consolidados: dict[tuple[str, str], Registro] = {}
@@ -101,6 +108,8 @@ def mesclar_fontes(painel, programadas, atracados=None, fundeados=None):
                            ("APS_PAINEL", painel), ("APS_ATRACADOS", atracados or []),
                            ("APS_FUNDEADOS", fundeados or [])):
     for original in registros:
+      if fonte == "APS_PAINEL" and _painel_historico(original):
+        continue
       navio = dict(original, fonte=fonte)
       if fonte == "APS_FUNDEADOS":
         for campo in ("local", "eta", "etb"):
@@ -258,7 +267,8 @@ def planejar_sincronizacao(
     else:
       plano.atualizar.append(Atualizacao(
           anterior,
-          {"ausencias_consecutivas": ausencias, "situacao": "desatualizado"},
+          {"ausencias_consecutivas": ausencias, "situacao": "indisponivel",
+           "ultima_consulta": momento},
           localizado=False,
       ))
   return plano

@@ -39,7 +39,7 @@ def campos(navio):
     return [nome, "⚪ Não localizado nesta coleta", "—", "—", "—"]
   emoji, estado = estado_operacional(navio)
   etb = ("✅ Já atracado / etapa posterior" if etapa_evento(navio.get("evento"))[0] >= 3
-         else "⏳ Prevista: " + linha(navio.get("etb")))
+         else "⏳ Prevista: " + (linha(navio.get("etb")) if navio.get("etb") else "N/A"))
   return [nome, f"{emoji} {linha(estado)}", linha(formatar_local(navio.get("local"))),
           linha(navio.get("eta")), etb]
 

@@ -39,6 +39,11 @@ class HorarioTest(unittest.TestCase):
     with self.assertRaises(ValueError):
       preparar_paginas([{"nome": "X" * 1500}])
 
+  def test_template_de_fundeado_sem_previsao_mostra_na(self):
+    pagina=preparar_paginas([{'nome':'ROSTRUM HEDONIST','situacao':'atualizado',
+                             'evento':'FUNDEADO'}])[0]
+    self.assertEqual(pagina[6], '⏳ Prevista: N/A')
+
   def test_paginacao_texto_inclui_rodape_e_divide_bloco_grande(self):
     navios = [{"nome": "NAVIO", "evento": "X" * 1400, "situacao": "atualizado"}]
     paginas = montar_relatorio(navios, limite=300)

@@ -182,6 +182,8 @@ def _formatar(navio: Registro, agora: datetime | None, completo: bool) -> str:
         continue
       if navio.get(campo) and navio[campo] != "N/A":
         previsoes.append(f"{('✅ ' if emoji == '🟢' else '⏳ ') if campo == 'etb' else ''}*{rotulo}:* {formatar_data_operacional(navio[campo])}")
+      elif campo == "etb" and emoji == "⚓":
+        previsoes.append("⏳ *Atracação prevista:* N/A")
     if previsoes:
       blocos.append(("*Datas*\n\n" if completo else "") + "\n".join(previsoes))
   dados = []

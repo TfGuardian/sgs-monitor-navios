@@ -1,9 +1,10 @@
+import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from time import sleep
 from typing import Any, Callable, cast
 
-from consulta_navio import formatar_data_operacional, normalizar
+from consulta_navio import formatar_data_operacional, normalizar, etapa_evento
 
 Registro = dict[str, Any]
 CAMPOS_DADOS = (
@@ -58,6 +59,13 @@ def _data_operacao(navio: Registro) -> datetime:
   return datetime.min
 
 
+def _painel_historico(navio: Registro, agora: datetime | None = None) -> bool:
+  """O painel da APS inclui escalas arquivadas junto das atuais."""
+  data = _data_operacao(navio)
+  referencia = (agora or datetime.now(timezone.utc)).replace(tzinfo=None)
+  return data != datetime.min and data < referencia - timedelta(days=180)
+
+
 def consolidar_coleta(registros: list[Registro]) -> list[Registro]:
   """Mantem uma ocorrencia por IMO ou nome, priorizando a operacao recente."""
   consolidados: dict[tuple[str, str], Registro] = {}
@@ -71,54 +79,91 @@ def consolidar_coleta(registros: list[Registro]) -> list[Registro]:
   return list(consolidados.values())
 
 
-def mesclar_fontes(
-    painel: list[Registro],
-    programadas: list[Registro],
-    atracados: list[Registro] | None = None,
-) -> list[Registro]:
-  """Combina programacao, painel operacional e posicao de atracados."""
-  resultado = [dict(navio) for navio in consolidar_coleta(programadas)]
-  por_imo = {_imo(n.get("imo")): n for n in resultado if _imo(n.get("imo"))}
-  por_nome = {normalizar(n.get("nome")): n for n in resultado}
+def _mesmo_navio(a, b):
+  ia, ib = _imo(a.get("imo")).lstrip("0"), _imo(b.get("imo")).lstrip("0")
+  if ia and ib:
+    return ia == ib
+  return normalizar(a.get("nome")) == normalizar(b.get("nome"))
 
-  for navio_painel in consolidar_coleta(painel):
-    imo = _imo(navio_painel.get("imo"))
-    encontrado = por_imo.get(imo) if imo else None
-    encontrado = encontrado or por_nome.get(normalizar(navio_painel.get("nome")))
-    if encontrado is None:
-      novo = dict(navio_painel)
-      novo["fonte"] = "APS_PAINEL"
-      resultado.append(novo)
-      por_nome[normalizar(novo.get("nome"))] = novo
-      if _imo(novo.get("imo")):
-        por_imo[_imo(novo.get("imo"))] = novo
-      continue
 
-    for campo, valor in navio_painel.items():
-      if valor not in (None, ""):
-        encontrado[campo] = valor
-    encontrado["fonte"] = "APS_PAINEL + APS_ATRACACOES_PROGRAMADAS"
+def _identificador_escala(valor, campo="viagem"):
+  texto = normalizar(valor)
+  if campo == "viagem":
+    # APS: número/ano na programação e número-sufixo ano na posição.
+    partes = re.fullmatch(r"(\d+)(?:-\d+|--)?[ /]+(\d{4})", texto)
+    if partes:
+      return f"{int(partes[1])}/{partes[2]}"
+  return re.sub(r"[^A-Z0-9]", "", texto)
 
-  por_imo = {_imo(n.get("imo")): n for n in resultado if _imo(n.get("imo"))}
-  por_nome = {normalizar(n.get("nome")): n for n in resultado}
-  for navio_atracado in consolidar_coleta(atracados or []):
-    imo = _imo(navio_atracado.get("imo"))
-    encontrado = por_imo.get(imo) if imo else None
-    encontrado = encontrado or por_nome.get(normalizar(navio_atracado.get("nome")))
-    if encontrado is None:
-      novo = dict(navio_atracado)
-      novo["evento"] = "ATRACADO"
-      novo["fonte"] = "APS_ATRACADOS"
-      resultado.append(novo)
-      continue
-    for campo in ("nome", "local"):
-      if navio_atracado.get(campo) not in (None, ""):
-        encontrado[campo] = navio_atracado[campo]
-    fontes = str(encontrado.get("fonte") or "").split(" + ")
-    if "APS_ATRACADOS" not in fontes:
-      fontes.append("APS_ATRACADOS")
-    encontrado["evento"] = "ATRACADO"
-    encontrado["fonte"] = " + ".join(fonte for fonte in fontes if fonte)
+
+def _escala_conflitante(a, b):
+  return any(a.get(c) and b.get(c) and _identificador_escala(a[c], c) != _identificador_escala(b[c], c)
+             for c in ("viagem", "duv"))
+
+
+def mesclar_fontes(painel, programadas, atracados=None, fundeados=None):
+  """Não resolve conflitos por ordem de coleta ou por data prevista."""
+  grupos = []
+  for fonte, registros in (("APS_ATRACACOES_PROGRAMADAS", programadas),
+                           ("APS_PAINEL", painel), ("APS_ATRACADOS", atracados or []),
+                           ("APS_FUNDEADOS", fundeados or [])):
+    for original in registros:
+      if fonte == "APS_PAINEL" and _painel_historico(original):
+        continue
+      navio = dict(original, fonte=fonte)
+      if fonte == "APS_FUNDEADOS":
+        for campo in ("local", "eta", "etb"):
+          navio.pop(campo, None)
+      candidatos = [g for g in grupos if any(_mesmo_navio(n, navio) or normalizar(n.get("nome")) == normalizar(navio.get("nome")) for n in g)]
+      if candidatos:
+        grupo = candidatos[0]
+        grupo.append(navio)
+        for outro in candidatos[1:]:
+          grupo.extend(outro)
+          grupos.remove(outro)
+      else:
+        grupos.append([navio])
+  resultado = []
+  for grupo in grupos:
+    # A lista de posição identifica a escala; registros incompatíveis não avançam o status.
+    identificados = [n for n in grupo if n.get("viagem") or n.get("duv")]
+    referencia = next((n for fonte in ("APS_FUNDEADOS", "APS_ATRACADOS")
+                       for n in identificados if n["fonte"] == fonte),
+                      max(identificados or grupo, key=_data_operacao))
+    atuais = [n for n in grupo if not _escala_conflitante(n, referencia)
+              and not (_imo(n.get("imo")) and _imo(referencia.get("imo")) and not _mesmo_navio(n, referencia))]
+    programacao = [n for n in atuais if n["fonte"] == "APS_ATRACACOES_PROGRAMADAS"]
+    painel_atual = [n for n in atuais if n["fonte"] == "APS_PAINEL"]
+    base = dict(max(programacao or painel_atual or atuais, key=_data_operacao))
+    for n in painel_atual:
+      for c, v in n.items():
+        if v not in (None, ""):
+          base[c] = v
+    candidatos = []
+    for n in atuais:
+      evento = ("ATRACADO" if n["fonte"] == "APS_ATRACADOS" else
+                "FUNDEADO" if n["fonte"] == "APS_FUNDEADOS" else n.get("evento"))
+      # Programação jamais comprova operação, atracação ou saída realizada.
+      if n["fonte"] == "APS_ATRACACOES_PROGRAMADAS":
+        evento = "ATRACACAO PROGRAMADA"
+      candidatos.append((etapa_evento(evento)[0], n, evento))
+    rank, escolhido, evento = max(candidatos, key=lambda item: item[0])
+    if rank > 0:
+      base["evento"] = evento
+      if escolhido["fonte"] != "APS_FUNDEADOS" and escolhido.get("local"):
+        base["local"] = escolhido["local"]
+    elif normalizar(base.get("evento")) in ("ATRACACAO", "PROGRAMADO", "ATRACACAO PROGRAMADA"):
+      base["evento"] = "ATRACACAO PROGRAMADA"
+    if programacao:
+      for c in ("eta", "etb"):
+        base[c] = max(programacao, key=_data_operacao).get(c)
+    if rank < 3 and programacao:
+      base["local"] = max(programacao, key=_data_operacao).get("local") or base.get("local")
+    if rank >= 3:
+      base["etb"] = None
+    base["fonte"] = " + ".join(dict.fromkeys(n["fonte"] for n in atuais))
+    base["_catalogo_completo"] = True
+    resultado.append(base)
   return resultado
 
 
@@ -126,17 +171,15 @@ def coletar_catalogo_completo() -> tuple[list[Registro], int, int, int]:
   from monitor_aps import coletar_aps
   from monitor_atracacoes import coletar_atracacoes_programadas
   from monitor_atracados import coletar_navios_atracados
+  from monitor_fundeados import coletar_navios_fundeados
 
-  painel = consolidar_coleta(coletar_com_tentativas(coletar_aps))
+  painel = coletar_com_tentativas(coletar_aps)
   validar_coleta(painel, [])
-  programadas = consolidar_coleta(
-      coletar_com_tentativas(coletar_atracacoes_programadas)
-  )
-  atracados = consolidar_coleta(
-      coletar_com_tentativas(coletar_navios_atracados)
-  )
+  programadas = coletar_com_tentativas(coletar_atracacoes_programadas)
+  atracados = coletar_com_tentativas(coletar_navios_atracados)
+  fundeados = coletar_com_tentativas(coletar_navios_fundeados)
   return (
-      mesclar_fontes(painel, programadas, atracados),
+      mesclar_fontes(painel, programadas, atracados, fundeados),
       len(painel),
       len(programadas),
       len(atracados),
@@ -180,8 +223,12 @@ def planejar_sincronizacao(
     # ja possui esses valores, a ausencia na fonte nao deve apaga-los.
     dados = {campo: coletado.get(campo) for campo in CAMPOS_DADOS
              if coletado.get(campo) not in (None, "")}
+    if coletado.get("_catalogo_completo"):
+      # Uma coleta completa sem esses dados não confirma os valores antigos.
+      for campo in ("eta", "etb", "local"):
+        dados[campo] = coletado.get(campo) or None
     for campo in ("eta", "etb"):
-      if campo in dados:
+      if dados.get(campo):
         dados[campo] = formatar_data_operacional(dados[campo])
     dados.update({
         "ultima_consulta": momento,
@@ -220,7 +267,8 @@ def planejar_sincronizacao(
     else:
       plano.atualizar.append(Atualizacao(
           anterior,
-          {"ausencias_consecutivas": ausencias, "situacao": "desatualizado"},
+          {"ausencias_consecutivas": ausencias, "situacao": "indisponivel",
+           "ultima_consulta": momento},
           localizado=False,
       ))
   return plano
@@ -297,9 +345,7 @@ def _registrar_coleta(cliente, dados: Registro) -> None:
 def sincronizar(dry_run: bool = False) -> PlanoSincronizacao:
   from config import criar_supabase
   from lista_monitoramento import (
-      carregar_destinatarios,
       carregar_lista,
-      montar_visao_monitorados,
   )
   cliente = criar_supabase(administrativo=True)
   inicio = datetime.now(timezone.utc)
@@ -381,20 +427,8 @@ def sincronizar(dry_run: bool = False) -> PlanoSincronizacao:
           "navios_indisponiveis": max(0, len(lista) - len(coletados)),
       })
 
-      import os
-      if os.getenv("RELATORIO_WHATSAPP_ATIVO", "").strip().lower() in (
-          "1", "true", "sim", "yes",
-      ):
-        from relatorio import montar_relatorio
-        from whatsapp import enviar_relatorio_whatsapp
-        try:
-          paginas = montar_relatorio(montar_visao_monitorados(cliente), limite=900)
-          for destinatario in carregar_destinatarios(cliente):
-            for pagina in paginas:
-              enviar_relatorio_whatsapp(destinatario, pagina)
-        except Exception as exc:
-          # Uma falha da Meta nao invalida os dados que ja foram coletados.
-          print(f"Aviso: coleta salva, mas o relatorio nao foi enviado: {exc}")
+      # Envio horario executado por relatorio_horario.py, com snapshot e fila.
+      # Uma falha na entrega nao altera o resultado da coleta salva.
 
     prefixo = "[SIMULACAO] " if dry_run else ""
     print(

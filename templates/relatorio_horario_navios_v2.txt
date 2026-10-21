@@ -1,0 +1,18 @@
+🚢 *Monitoramento de navios*
+🕒 Coleta: {{1}} (Brasília) • Parte {{2}}
+
+🚢 *{{3}}*
+{{4}}
+📍 Terminal: {{5}}
+Chegada: {{6}}
+Atracação: {{7}}
+
+───────────────
+
+🚢 *{{8}}*
+{{9}}
+📍 Terminal: {{10}}
+Chegada: {{11}}
+Atracação: {{12}}
+
+Relatório solicitado por assinatura. Para cancelar, envie *Parar*.

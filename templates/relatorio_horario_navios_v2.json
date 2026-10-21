@@ -1,0 +1,29 @@
+{
+  "name": "relatorio_horario_navios_v2",
+  "language": "pt_BR",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "🚢 *Monitoramento de navios*\n🕒 Coleta: {{1}} (Brasília) • Parte {{2}}\n\n🚢 *{{3}}*\n{{4}}\n📍 Terminal: {{5}}\nChegada: {{6}}\nAtracação: {{7}}\n\n───────────────\n\n🚢 *{{8}}*\n{{9}}\n📍 Terminal: {{10}}\nChegada: {{11}}\nAtracação: {{12}}\n\nRelatório solicitado por assinatura. Para cancelar, envie *Parar*.",
+      "example": {
+        "body_text": [
+          [
+            "25/09/2026 14:00",
+            "1/5",
+            "NAVIO EXEMPLO A",
+            "⚓ Fundeado",
+            "Tiplam - 16/17",
+            "25/09/2026",
+            "⏳ Prevista: 26/09/2026 07:00/13:00",
+            "NAVIO EXEMPLO B",
+            "🟢 Atracado",
+            "Terminal exemplo",
+            "24/09/2026",
+            "✅ Já atracado / etapa posterior"
+          ]
+        ]
+      }
+    }
+  ]
+}

@@ -4,3 +4,16 @@ __pycache__/
 .idea/
 .pytest_cache/
 .venv/
+tmp/praticagem-deps/
+tmp/praticagem-browsers/
+tmp/praticagem-worker.log*
+tmp/praticagem-teste.flag
+tmp/praticagem-teste-toxotis.flag
+
+# Artefatos de conversas, relatórios gerados e ambiente local
+.codex-remote-attachments/
+.contact_sheets/
+.docx_review_*/
+.docx_tmp_*/
+output/
+tmp/

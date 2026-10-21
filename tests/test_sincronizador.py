@@ -66,7 +66,7 @@ class SincronizadorTest(unittest.TestCase):
     self.assertNotIn("imo", dados)
     self.assertNotIn("eta", dados)
 
-  def test_primeira_ausencia_marca_desatualizado(self):
+  def test_primeira_ausencia_marca_indisponivel_sem_exibir_dados_antigos(self):
     existentes = [{
         "id": 1, "nome": "AUSENTE", "imo": "111", "ausencias_consecutivas": 0,
     }]
@@ -74,7 +74,8 @@ class SincronizadorTest(unittest.TestCase):
     plano = planejar_sincronizacao(coletados, existentes, self.agora)
     ausencia = next(a for a in plano.atualizar if a.anterior["nome"] == "AUSENTE")
     self.assertEqual(ausencia.dados["ausencias_consecutivas"], 1)
-    self.assertEqual(ausencia.dados["situacao"], "desatualizado")
+    self.assertEqual(ausencia.dados["situacao"], "indisponivel")
+    self.assertIn("ultima_consulta", ausencia.dados)
     self.assertFalse(plano.remover)
 
   def test_segunda_ausencia_remove(self):
@@ -160,11 +161,11 @@ class SincronizadorTest(unittest.TestCase):
     self.assertEqual(len(resultado), 1)
     self.assertEqual(resultado[0]["imo"], "1234567")
     self.assertEqual(resultado[0]["eta"], "15/09/2026 08:00")
-    self.assertEqual(resultado[0]["etb"], "15/09/2026 14:00")
+    self.assertIsNone(resultado[0]["etb"])
     self.assertEqual(resultado[0]["local"], "BERCO REAL")
     self.assertEqual(
         resultado[0]["fonte"],
-        "APS_PAINEL + APS_ATRACACOES_PROGRAMADAS",
+        "APS_ATRACACOES_PROGRAMADAS + APS_PAINEL",
     )
 
   def test_navio_exclusivo_da_programacao_tambem_e_retornado(self):
@@ -187,7 +188,7 @@ class SincronizadorTest(unittest.TestCase):
     resultado = mesclar_fontes([], programadas, atracados)
     self.assertEqual(resultado[0]["imo"], "1234567")
     self.assertEqual(resultado[0]["eta"], "15/09/2026 08:00")
-    self.assertEqual(resultado[0]["etb"], "15/09/2026 13:00/19:00")
+    self.assertIsNone(resultado[0]["etb"])
     self.assertEqual(resultado[0]["local"], "TECON 3")
     self.assertEqual(resultado[0]["evento"], "ATRACADO")
     self.assertIn("APS_ATRACADOS", resultado[0]["fonte"])

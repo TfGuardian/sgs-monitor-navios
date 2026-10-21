@@ -51,6 +51,7 @@ def extrair_navios_atracados(
           "carga": _valor(row, col_carga),
           "evento": "ATRACADO",
           "fonte": "APS_ATRACADOS",
+          **{c: _valor(row, buscar_coluna(tabela, [c])) for c in ("imo", "viagem", "duv")},
       })
   return registros, encontrou_tabela
 

@@ -1,0 +1,21 @@
+[Unit]
+Description=Observador da Praticagem (somente alertas simulados)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=praticagem
+Group=praticagem
+WorkingDirectory=/opt/sgs-monitor-navios
+EnvironmentFile=/etc/sgs-praticagem.env
+ExecStart=/opt/sgs-monitor-navios/.venv/bin/python /opt/sgs-monitor-navios/praticagem_worker.py
+Restart=always
+RestartSec=30
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

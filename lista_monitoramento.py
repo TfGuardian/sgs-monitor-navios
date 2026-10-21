@@ -188,23 +188,8 @@ def preparar_remocao(cliente, telefone: str, termos: list[str]) -> Registro:
 
 def confirmar_remocao(cliente, telefone: str) -> list[str]:
   numero = normalizar_telefone(telefone)
-  resposta = (cliente.table("confirmacoes_chat").select("*")
-              .eq("telefone", numero).limit(1).execute())
-  pendentes = cast(list[Registro], resposta.data or [])
-  if not pendentes:
-    return []
-  pendente = pendentes[0]
-  expira = datetime.fromisoformat(str(pendente["expira_em"]).replace("Z", "+00:00"))
-  if expira < datetime.now(timezone.utc):
-    cliente.table("confirmacoes_chat").delete().eq("telefone", numero).execute()
-    return []
-  payload = cast(Registro, pendente.get("payload") or {})
-  ids = [int(item) for item in payload.get("ids", [])]
-  nomes = [str(item) for item in payload.get("nomes", [])]
-  if ids:
-    cliente.table("lista_monitoramento").delete().in_("id", ids).execute()
-  cliente.table("confirmacoes_chat").delete().eq("telefone", numero).execute()
-  return nomes
+  resposta = cliente.rpc("confirmar_remocao_chat", {"numero": numero}).execute()
+  return [str(nome) for nome in (resposta.data or [])]
 
 
 def cancelar_confirmacao(cliente, telefone: str) -> None:

@@ -117,16 +117,92 @@ def _exibir(valor: Any) -> str:
   return str(valor).strip() if valor not in (None, "") else "N/A"
 
 
+def etapa_evento(valor):
+  evento = re.sub(r"[^A-Z0-9 ]", " ", normalizar(valor))
+  evento = re.sub(r"\s+", " ", evento).strip()
+  if evento in ("SAIDA CONFIRMADA", "SAIU"):
+    return 7, "🚢", "Saída confirmada"
+  if evento == "DESATRACADO":
+    return 6, "🚢", "Desatracado"
+  if evento in ("DESATRACANDO", "EM DESATRACACAO"):
+    return 6, "🚢", "Desatracando"
+  if evento in ("AG DESATRACACAO", "AGUARDANDO DESATRACACAO", "AGUARD DESATRACACAO", "AGUAR DESATRACACAO"):
+    return 5, "🟢", "Aguardando desatracação"
+  if evento in ("OPERANDO", "OPERANDO BOMBEANDO", "EM OPERACAO"):
+    return 4, "🟢", "Operando"
+  if evento == "ATRACADO":
+    return 3, "🟢", "Atracado"
+  if evento in ("ATRACANDO", "EM ATRACACAO"):
+    return 2, "🚢", "Atracando"
+  if evento == "FUNDEADO":
+    return 1, "⚓", "Fundeado"
+  if evento in ("ATRACACAO", "ATRACACAO PROGRAMADA", "PROGRAMADO", "AGUARDANDO ATRACACAO"):
+    return 0, "🟡", "Atracação programada"
+  return 0, "⚪", str(valor or "Situação não informada")
+
+
+def estado_operacional(navio: Registro) -> tuple[str, str]:
+  if normalizar(navio.get("evento")) == "SITUACAO_EM_VERIFICACAO":
+    return "⚠️", "Situação em verificação"
+  rank, emoji, estado = etapa_evento(navio.get("evento"))
+  fontes = str(navio.get("fonte") or "").split(" + ")
+  if rank < 3 and "APS_ATRACADOS" in fontes:
+    return "🟢", "Atracado"
+  if not navio.get("evento") and "APS_ATRACACOES_PROGRAMADAS" in fontes:
+    return "🟡", "Atracação programada"
+  return emoji, estado
+
+
+def formatar_local(valor: Any) -> str:
+  texto = str(valor or "").strip()
+  return re.sub(r"\b(?:ultraf[eé]rtil|ultraf|tiplan|tiplam)\b", "Tiplam", texto, flags=re.IGNORECASE)
+
+
+def _formatar(navio: Registro, agora: datetime | None, completo: bool) -> str:
+  blocos = (["🔎 *Detalhes do navio*"] if completo else [])
+  identidade = f"🚢 *{_exibir(navio.get('nome'))}*"
+  if completo and navio.get("imo"):
+    identidade += f"\n*IMO:* {navio['imo']}"
+  blocos.append(identidade)
+  indisponivel = normalizar(navio.get("situacao") or "indisponivel") == "INDISPONIVEL"
+  antigo = situacao_atual(navio, agora) == "DESATUALIZADO"
+  if indisponivel:
+    blocos.extend(["⚪ *Dados indisponíveis*", "Não localizado nas fontes consultadas nesta coleta."])
+  else:
+    emoji, estado = estado_operacional(navio)
+    if antigo:
+      blocos.extend(["⚠️ *Dados desatualizados*", "As informações abaixo correspondem à última consulta disponível."])
+    status = f"*Última situação registrada:* {estado}" if antigo else f"{emoji} *{estado}*"
+    if navio.get("local") and navio["local"] != "N/A":
+      status += f"\n📍 *{'Terminal previsto' if emoji in ('🟡', '⚓') else 'Local'}:* {formatar_local(navio['local'])}"
+    blocos.append(status)
+    previsoes = []
+    for campo, rotulo in (("eta", "Chegada (ETA)"), ("etb", "Atracado" if emoji == "🟢" else "Atracação prevista")):
+      if campo == "etb" and etapa_evento(navio.get("evento"))[0] >= 3:
+        continue
+      if navio.get(campo) and navio[campo] != "N/A":
+        previsoes.append(f"{('✅ ' if emoji == '🟢' else '⏳ ') if campo == 'etb' else ''}*{rotulo}:* {formatar_data_operacional(navio[campo])}")
+      elif campo == "etb" and emoji == "⚓":
+        previsoes.append("⏳ *Atracação prevista:* N/A")
+    if previsoes:
+      blocos.append(("*Datas*\n\n" if completo else "") + "\n".join(previsoes))
+  dados = []
+  if navio.get("ultima_consulta"):
+    dados.append(f"🕒 *{'Última consulta' if completo else 'Consulta'}:* {formatar_data(navio['ultima_consulta'])}")
+  if completo:
+    if navio.get("ultima_alteracao"):
+      dados.append(f"*Última alteração:* {formatar_data(navio['ultima_alteracao'])}")
+    if navio.get("fonte"):
+      fonte = str(navio['fonte']).replace("APS_ATRACACOES_PROGRAMADAS", "Atracações programadas").replace("APS_FUNDEADOS", "Navios fundeados").replace("APS_ATRACADOS", "Navios atracados").replace("APS_PAINEL", "Painel do porto")
+      dados.append(f"*Fonte:* {fonte}")
+  if dados:
+    blocos.append(("*Atualização dos dados*\n\n" if completo else "") + "\n".join(dados))
+  return "\n\n".join(blocos)
+
+
+def formatar_resumo(navio: Registro, agora: datetime | None = None) -> str:
+  return _formatar(navio, agora, False)
+
+
 def formatar_navio(navio: Registro, agora: datetime | None = None) -> str:
-  return "\n".join((
-      f"Nome: {_exibir(navio.get('nome'))}",
-      f"IMO: {_exibir(navio.get('imo'))}",
-      f"ETA: {formatar_data_operacional(navio.get('eta'))}",
-      f"ETB: {formatar_data_operacional(navio.get('etb'))}",
-      f"Local: {_exibir(navio.get('local'))}",
-      f"Evento: {_exibir(navio.get('evento'))}",
-      f"Fonte: {_exibir(navio.get('fonte'))}",
-      f"Ultima consulta: {formatar_data(navio.get('ultima_consulta'))}",
-      f"Ultima alteracao: {formatar_data(navio.get('ultima_alteracao'))}",
-      f"Situacao: {situacao_atual(navio, agora)}",
-  ))
+  return _formatar(navio, agora, True)

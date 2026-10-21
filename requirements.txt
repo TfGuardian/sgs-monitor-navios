@@ -1,8 +1,2 @@
-requests>=2.32,<3
-pandas>=2.2,<3
-lxml>=5.3,<7
-supabase>=2.10,<3
-urllib3>=2.2,<3
-html5lib>=1.1,<2
-python-dotenv>=1.0,<2
-truststore>=0.10,<1
+# Dependências definidas em pyproject.toml; instalação editável do pacote local.
+-e .

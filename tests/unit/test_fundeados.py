@@ -1,0 +1,112 @@
+import unittest
+from unittest.mock import patch
+import pandas as pd
+from vessel_monitor.sources.porto_santos.monitor_fundeados import extrair_navios_fundeados
+from vessel_monitor.application.sincronizador import mesclar_fontes, coletar_catalogo_completo
+from vessel_monitor.presentation.consulta_navio import formatar_resumo
+
+class FundeadosTest(unittest.TestCase):
+  def test_extracao_sem_inventar_eta(self):
+    tabela=pd.DataFrame([['A PROGRAMADO','01/01/2020','T','1']], columns=['Navio Ship','Cheg/Arrival','Terminal','Viagem'])
+    registros, ok=extrair_navios_fundeados([tabela])
+    self.assertTrue(ok)
+    self.assertEqual(registros[0]['nome'],'A')
+    self.assertNotIn('eta',registros[0])
+    self.assertEqual(registros[0]['viagem'],'1')
+    self.assertEqual(extrair_navios_fundeados([pd.DataFrame(columns=['Erro'])]),([],False))
+    self.assertEqual(extrair_navios_fundeados([tabela.iloc[0:0]]),([],True))
+
+  def test_fundeado_com_programacao(self):
+    r=mesclar_fontes([], [{'nome':'A','etb':'amanhã','evento':'ATRACACAO','viagem':'1','local':'PROGRAMADO'}], [], [{'nome':'A','viagem':'1','local':'T'}])[0]
+    self.assertEqual(r['evento'],'FUNDEADO')
+    self.assertEqual(r['etb'],'amanhã')
+    texto=formatar_resumo(dict(r,situacao='atualizado'))
+    self.assertIn('⚓ *Fundeado*',texto)
+    self.assertIn('Terminal previsto',texto)
+
+  def test_fundeado_sem_etb_mostra_na(self):
+    registro=mesclar_fontes([],[],[],[{'nome':'ROSTRUM HEDONIST','viagem':'4524-8 2026'}])[0]
+    self.assertIn('⏳ *Atracação prevista:* N/A',formatar_resumo(dict(registro,situacao='atualizado')))
+
+  def test_painel_com_escala_de_2024_nao_e_status_atual(self):
+    antigo={'nome':'WHISTLER','viagem':'0484/2024','etb':'15/02/24 20:50:00',
+            'local':'ARMAZEM 29','evento':'NAO REQ TRABALHO'}
+    self.assertEqual(mesclar_fontes([antigo],[],[],[]),[])
+    atual={'id':30,'nome':'WHISTLER','etb':'15/02/2024 20:50','evento':'NAO REQ TRABALHO',
+           'local':'ARMAZEM 29','ausencias_consecutivas':0}
+    from vessel_monitor.application.sincronizador import planejar_sincronizacao
+    from datetime import datetime, timezone
+    plano=planejar_sincronizacao([], [atual], datetime.now(timezone.utc))
+    visao=dict(atual,**plano.atualizar[0].dados)
+    resumo=formatar_resumo(visao)
+    self.assertIn('Dados indisponíveis',resumo)
+    self.assertNotIn('NAO REQ TRABALHO',resumo)
+    self.assertNotIn('15/02/2024',resumo)
+
+  def test_painel_recente_ou_fundeio_confirmado_continua(self):
+    from datetime import datetime
+    recente=datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+    painel={'nome':'A','etb':recente,'evento':'OPERANDO'}
+    self.assertEqual(mesclar_fontes([painel],[],[],[])[0]['evento'],'OPERANDO')
+    antigo={'nome':'B','etb':'15/02/24 20:50:00','evento':'NAO REQ TRABALHO'}
+    self.assertEqual(mesclar_fontes([antigo],[],[],[{'nome':'B'}])[0]['evento'],'FUNDEADO')
+
+  def test_etapa_posterior_prevalece_sobre_fundeio(self):
+    for evento in ('ATRACANDO','ATRACADO','OPERANDO','OPERANDO/BOMBEANDO','AG/DESATRACACAO','DESATRACANDO','SAIDA CONFIRMADA'):
+      with self.subTest(evento=evento):
+        r=mesclar_fontes([{'nome':'A','evento':evento,'viagem':'1','local':'BERCO'}],[],[],[{'nome':'A','viagem':'1','local':'TERMINAL'}])[0]
+        self.assertEqual(r['evento'],evento)
+        self.assertEqual(r['local'],'BERCO')
+    r=mesclar_fontes([],[],[{'nome':'A','local':'BERCO'}],[{'nome':'A','local':'TERMINAL'}])[0]
+    self.assertEqual(r['evento'],'ATRACADO')
+    self.assertIn('🟢 *Atracado*',formatar_resumo(dict(r,situacao='atualizado')))
+
+  def test_escala_antiga_nao_avanca_fundeado_atual(self):
+    r=mesclar_fontes([{'nome':'A','evento':'OPERANDO','viagem':'antiga'}],[],[],[{'nome':'A','viagem':'atual'}])[0]
+    self.assertEqual(r['evento'],'FUNDEADO')
+    self.assertNotIn('APS_PAINEL',r['fonte'])
+
+  def test_programacao_nao_confirma_saida(self):
+    r=mesclar_fontes([], [{'nome':'A','evento':'DESATRACACAO','etb':'amanhã'}],[],[{'nome':'A'}])[0]
+    self.assertEqual(r['evento'],'FUNDEADO')
+
+  def test_operando_nao_vira_atracado_no_formatador(self):
+    r=mesclar_fontes([{'nome':'A','evento':'OPERANDO'}],[],[{'nome':'A'}],[{'nome':'A'}])[0]
+    self.assertEqual(r['evento'],'OPERANDO')
+    self.assertIn('🟢 *Operando*',formatar_resumo(dict(r,situacao='atualizado')))
+    from vessel_monitor.presentation.consulta_navio import etapa_evento
+    self.assertEqual(etapa_evento('AG/DESATRACACAO')[2],'Aguardando desatracação')
+    self.assertEqual(etapa_evento('DESATRACACAO')[0],0)
+
+  def test_falha_fundeados_aborta_catalogo(self):
+    with patch('vessel_monitor.sources.porto_santos.monitor_aps.coletar_aps', return_value=[{'nome':str(i)} for i in range(60)]), patch('vessel_monitor.sources.porto_santos.monitor_atracacoes.coletar_atracacoes_programadas',return_value=[]), patch('vessel_monitor.sources.porto_santos.monitor_atracados.coletar_navios_atracados',return_value=[]), patch('vessel_monitor.sources.porto_santos.monitor_fundeados.coletar_navios_fundeados',side_effect=RuntimeError('falha')), patch('vessel_monitor.application.sincronizador.sleep'):
+      with self.assertRaises(RuntimeError): coletar_catalogo_completo()
+
+  def test_star_helena_programacao_preservada(self):
+    programada={'nome':'STAR HELENA','viagem':'3942/2026','duv':'400162026','etb':'25/09/2026 07:00/13:00','local':'BARRA/12A/13/14','evento':'ATRACACAO'}
+    fundeado={'nome':'STAR HELENA','viagem':'3942-- 2026','local':'ERRADO','etb':'ERRADO','eta':'ERRADO'}
+    r=mesclar_fontes([], [programada], [], [fundeado])[0]
+    self.assertEqual(r['evento'],'FUNDEADO')
+    self.assertEqual(r['etb'],'25/09/2026 07:00/13:00')
+    self.assertEqual(r['local'],'BARRA/12A/13/14')
+    r=mesclar_fontes([],[],[],[fundeado])[0]
+    for campo in ('local','eta','etb'): self.assertFalse(r.get(campo))
+
+  def test_union_voyager_e_limpeza_de_dados_antigos(self):
+    from vessel_monitor.application.sincronizador import planejar_sincronizacao, _escala_conflitante
+    from datetime import datetime, timezone
+    p={'nome':'UNION VOYAGER','viagem':'4166/2026','imo':'9628946','local':'TIPLAN 2/3','etb':'25/09/2026 07:00/13:00'}
+    f={'nome':'UNION VOYAGER','viagem':'4166-4 2026'}
+    antigo={'id':530,'nome':'UNION VOYAGER','local':'TGG','etb':'24/09/2026 01:00/07:00','evento':'FUNDEADO'}
+    r=mesclar_fontes([],[p],[],[f])[0]
+    plano=planejar_sincronizacao([r],[antigo],datetime.now(timezone.utc))
+    self.assertEqual(plano.atualizar[0].dados['local'],'TIPLAN 2/3')
+    self.assertEqual(plano.atualizar[0].dados['etb'],p['etb'])
+    self.assertIn('Tiplam 2/3',formatar_resumo(dict(r,situacao='atualizado')))
+    r=mesclar_fontes([],[],[],[f])[0]
+    plano=planejar_sincronizacao([r],[antigo],datetime.now(timezone.utc))
+    for c in ('local','eta','etb'): self.assertIsNone(plano.atualizar[0].dados[c])
+    self.assertTrue(plano.atualizar[0].alteracao_dados)
+    self.assertTrue(_escala_conflitante(p,{'viagem':'4167-4 2026'}))
+    self.assertTrue(_escala_conflitante(p,{'viagem':'4166-4 2025'}))
+    self.assertTrue(_escala_conflitante({'duv':'123-4'},{'duv':'123-5'}))

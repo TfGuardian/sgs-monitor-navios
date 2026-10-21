@@ -8,11 +8,16 @@
     ".docx_review_*": true,
     ".docx_tmp_*": true,
     ".venv": true,
-    "tmp": true
+    "tmp": true,
+    "var": true
   },
   "search.exclude": {
     "tmp/**": true,
     ".venv/**": true,
-    "output/**": true
-  }
+    "output/**": true,
+    "var/**": true
+  },
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/src"
+  ]
 }

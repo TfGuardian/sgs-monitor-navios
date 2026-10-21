@@ -10,10 +10,16 @@ tmp/praticagem-worker.log*
 tmp/praticagem-teste.flag
 tmp/praticagem-teste-toxotis.flag
 
-# Artefatos de conversas, relat�rios gerados e ambiente local
+# Artefatos de conversas, relatórios gerados e ambiente local
 .codex-remote-attachments/
 .contact_sheets/
 .docx_review_*/
 .docx_tmp_*/
 output/
 tmp/
+
+# Estado operacional e artefatos da instalação Python
+var/
+*.egg-info/
+build/
+dist/

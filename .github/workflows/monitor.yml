@@ -32,7 +32,7 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Validar codigo
-        run: python -m compileall -q .
+        run: python -m compileall -q src scripts tools tests
 
       - name: Executar script de monitoramento
         env:
@@ -49,7 +49,7 @@ jobs:
           RELATORIO_WHATSAPP_ATIVO: ${{ vars.RELATORIO_WHATSAPP_ATIVO }}
         run: |
           if [ "$RELATORIO_WHATSAPP_ATIVO" = "true" ]; then
-            python relatorio_horario.py
+            python -m vessel_monitor.application.relatorio_horario
           else
-            python main.py --sincronizar
+            python -m vessel_monitor --sincronizar
           fi

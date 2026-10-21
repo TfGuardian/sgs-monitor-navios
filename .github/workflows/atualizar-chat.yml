@@ -33,7 +33,7 @@ jobs:
           python -m pip install -r requirements.txt
 
       - name: Validar codigo
-        run: python -m compileall -q .
+        run: python -m compileall -q src scripts tools tests
 
       - name: Processar pedidos e enviar resultados
         env:
@@ -48,4 +48,4 @@ jobs:
           META_REPORT_TEMPLATE_NAME: ${{ vars.META_REPORT_TEMPLATE_NAME }}
           META_REPORT_TEMPLATE_LANGUAGE: ${{ vars.META_REPORT_TEMPLATE_LANGUAGE }}
           RELATORIO_WHATSAPP_ATIVO: ${{ vars.RELATORIO_WHATSAPP_ATIVO }}
-        run: python atualizacao_chat.py
+        run: python -m vessel_monitor.application.atualizacao_chat

@@ -7,6 +7,7 @@ from typing import Any
 
 CAMPOS_MANOBRA = ("mv", "pob", "passag", "local1", "local2")
 FASES = {"previsao", "confirmada", "andamento", "encerrada"}
+TIPOS_MANOBRA = {"E": "Entrada", "S": "Saída", "M": "Mudança interna"}
 
 
 def _texto(valor: Any) -> str:
@@ -93,7 +94,20 @@ def formatar_alerta(evento: dict[str, Any]) -> str:
         linhas = [f"🚢 *{evento['nome']}*", f"{emoji} *{rotulo}*"]
     else:
         linhas = [f"🚢 *{evento['nome']}*", "📝 *Movimentação atualizada*"]
-    rotulos = {"mv": "Código da manobra", "pob": "POB", "passag": "Passagem",
+    def tipo(valor: Any) -> str:
+        codigo = _texto(valor).upper()
+        if not codigo:
+            return "N/A"
+        nome = TIPOS_MANOBRA.get(codigo)
+        return nome or codigo
+
+    mudanca_tipo = next((m for m in mudancas if m["campo"] == "mv"), None)
+    codigo_atual = (mudanca_tipo["depois"] if mudanca_tipo else evento.get("mv"))
+    if _texto(codigo_atual):
+        linhas[1] += f" - {tipo(codigo_atual)}"
+    if mudanca_tipo:
+        linhas.extend(["", f"🧭 *Tipo de manobra:* {tipo(mudanca_tipo['antes'])} → {tipo(mudanca_tipo['depois'])}"])
+    rotulos = {"pob": "POB", "passag": "Passagem",
                "local1": "Local 1", "local2": "Local 2"}
     for mudanca in mudancas:
         campo = mudanca["campo"]

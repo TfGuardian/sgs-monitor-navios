@@ -10,6 +10,27 @@ def navio(manobras, **extras):
 
 
 class TransicoesPraticagemTest(unittest.TestCase):
+    def test_alerta_mostra_tipo_mesmo_quando_so_fase_muda(self):
+        for codigo, nome in (("E", "Entrada"), ("S", "Saída"), ("M", "Mudança interna")):
+            with self.subTest(codigo=codigo):
+                antes = navio([{"chave": "1", "mv": codigo, "fase": "previsao"}])
+                depois = navio([{"chave": "1", "mv": codigo, "fase": "andamento"}])
+                texto = formatar_alerta(comparar_estados(antes, depois)[0])
+                self.assertEqual(texto, f"🚢 *TORINO*\n🔵 *Manobra em andamento* - {nome}")
+
+    def test_correcao_tipo_mostra_descricao_sem_duplicar(self):
+        texto = formatar_alerta({"nome": "TORINO", "mv": "S", "mudancas": [
+            {"campo": "mv", "antes": "E", "depois": "S"}]})
+        self.assertIn("Entrada → Saída", texto)
+        self.assertEqual(texto.count("Tipo de manobra"), 1)
+
+    def test_tipo_desconhecido_preserva_codigo_e_ausente_nao_inventa(self):
+        evento = {"nome": "TORINO", "mv": "X", "mudancas": [
+            {"campo": "atracado", "antes": False, "depois": True}]}
+        self.assertIn("*Movimentação atualizada* - X", formatar_alerta(evento))
+        evento["mv"] = None
+        self.assertNotIn("Tipo de manobra", formatar_alerta(evento))
+
     def test_primeira_leitura_e_releitura_nao_avisam(self):
         atual = navio([{"chave": "saida-1", "mv": "S", "fase": "previsao"}])
         self.assertEqual(comparar_estados(None, atual), [])
@@ -22,6 +43,8 @@ class TransicoesPraticagemTest(unittest.TestCase):
         self.assertEqual(len(eventos), 1)
         self.assertEqual(eventos[0]["manobra"], "saida-1")
         self.assertEqual(eventos[0]["mudancas"][0]["depois"], "previsao")
+        self.assertIn("*Manobra em previsão* - Saída", formatar_alerta(eventos[0]))
+        self.assertNotIn("Entrada", formatar_alerta(eventos[0]))
 
     def test_fase_horario_e_local_geram_um_aviso(self):
         anterior = navio([{"chave": "saida-1", "fase": "previsao",
